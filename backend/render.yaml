@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: shop-backend
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: REPLIT_CLIENT_ID
+        sync: false
+      - key: REPLIT_CLIENT_SECRET
+        sync: false 
