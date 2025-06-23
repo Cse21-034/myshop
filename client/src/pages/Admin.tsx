@@ -33,6 +33,35 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import type { Product, Order, ContactMessage } from "@shared/schema";
 
+// TypeScript interfaces
+interface AdminStats {
+  totalProducts: number;
+  totalOrders: number;
+  totalCustomers: number;
+  revenue: number;
+  unreadMessages: number;
+}
+
+interface User {
+  id: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  profileImageUrl?: string;
+  isAdmin: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+interface Category {
+  id: number;
+  name: string;
+  slug: string;
+  description?: string;
+  imageUrl?: string;
+  createdAt?: string;
+}
+
 const productSchema = z.object({
   name: z.string().min(1, "Product name is required"),
   slug: z.string().min(1, "Product slug is required"),
@@ -51,7 +80,7 @@ const productSchema = z.object({
 type ProductFormData = z.infer<typeof productSchema>;
 
 export default function Admin() {
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading } = useAuth() as { user: User | undefined; isLoading: boolean };
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isProductDialogOpen, setIsProductDialogOpen] = useState(false);
@@ -90,7 +119,7 @@ export default function Admin() {
   }, [user, authLoading, toast]);
 
   // Admin stats
-  const { data: stats } = useQuery({
+  const { data: stats } = useQuery<AdminStats>({
     queryKey: ["/api/admin/stats"],
     retry: (failureCount, error) => {
       if (isUnauthorizedError(error as Error)) {
@@ -109,7 +138,7 @@ export default function Admin() {
   });
 
   // Products
-  const { data: products = [] } = useQuery({
+  const { data: products = [] } = useQuery<Product[]>({
     queryKey: ["/api/products", { admin: true }],
     queryFn: async () => {
       const response = await fetch("/api/products");
@@ -119,12 +148,12 @@ export default function Admin() {
   });
 
   // Categories
-  const { data: categories = [] } = useQuery({
+  const { data: categories = [] } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
   });
 
   // Orders
-  const { data: orders = [] } = useQuery({
+  const { data: orders = [] } = useQuery<Order[]>({
     queryKey: ["/api/orders"],
     retry: (failureCount, error) => {
       if (isUnauthorizedError(error as Error)) {
@@ -135,7 +164,7 @@ export default function Admin() {
   });
 
   // Contact messages
-  const { data: messages = [] } = useQuery({
+  const { data: messages = [] } = useQuery<ContactMessage[]>({
     queryKey: ["/api/contact"],
     retry: (failureCount, error) => {
       if (isUnauthorizedError(error as Error)) {
@@ -528,8 +557,8 @@ export default function Admin() {
                         </TableCell>
                         <TableCell>${product.price}</TableCell>
                         <TableCell>
-                          <Badge variant={product.stock > 0 ? "outline" : "destructive"}>
-                            {product.stock > 0 ? `${product.stock} in stock` : "Out of stock"}
+                          <Badge variant={(product.stock ?? 0) > 0 ? "outline" : "destructive"}>
+                            {(product.stock ?? 0) > 0 ? `${product.stock} in stock` : "Out of stock"}
                           </Badge>
                         </TableCell>
                         <TableCell>
