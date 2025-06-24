@@ -5,12 +5,25 @@ import session from "express-session";
 import type { Express, Request, Response, NextFunction, RequestHandler } from "express";
 import { storage } from "./storage";
 
+// Redis session store setup
+import RedisStore from "connect-redis";
+import { createClient } from "redis";
+
 export function setupGoogleAuth(app: Express) {
   app.set("trust proxy", 1);
+
+  let sessionStore;
+  if (process.env.REDIS_URL && process.env.NODE_ENV === "production") {
+    const redisClient = createClient({ url: process.env.REDIS_URL });
+    redisClient.connect().catch(console.error);
+    sessionStore = new RedisStore({ client: redisClient });
+  }
+
   app.use(session({
     secret: process.env.SESSION_SECRET!,
     resave: false,
     saveUninitialized: false,
+    store: sessionStore,
     cookie: {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
