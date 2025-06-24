@@ -1,5 +1,5 @@
 import passport from "passport";
-import { Strategy as GoogleStrategy } from "passport-google-oauth20";
+import { Strategy as GoogleStrategy, Profile, VerifyCallback } from "passport-google-oauth20";
 import session from "express-session";
 import type { Express, Request, Response, NextFunction, RequestHandler } from "express";
 import { storage } from "./storage";
@@ -23,7 +23,12 @@ export function setupGoogleAuth(app: Express) {
     clientID: process.env.GOOGLE_CLIENT_ID!,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
     callbackURL: process.env.GOOGLE_CALLBACK_URL || "/auth/google/callback",
-  }, async (accessToken, refreshToken, profile, done) => {
+  }, async (
+    accessToken: string,
+    refreshToken: string,
+    profile: Profile,
+    done: VerifyCallback
+  ) => {
     // Upsert user in DB
     await storage.upsertUser({
       id: profile.id,
