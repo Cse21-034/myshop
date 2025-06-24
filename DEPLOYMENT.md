@@ -1,6 +1,48 @@
 # Deployment Guide
 
-This guide will help you deploy the frontend to Vercel and the backend to Render.
+This guide will help you deploy the frontend to Vercel and the backend to Render, using Google Authentication for login.
+
+## Google OAuth Setup (Required for Login)
+
+### 1. Google Cloud Console
+- Go to https://console.cloud.google.com/
+- Create a new project (or select an existing one).
+- Go to **APIs & Services > OAuth consent screen** and configure your app (External, add your domain, fill required fields).
+- Go to **APIs & Services > Credentials** → **Create Credentials** → **OAuth client ID**.
+- Choose "Web application".
+- Set **Authorized redirect URIs**:
+  - For production: `https://your-backend.onrender.com/auth/google/callback`
+  - For local dev: `http://localhost:3000/auth/google/callback` (or your backend port)
+- Copy the **Client ID** and **Client Secret**.
+
+### 2. Backend (Render) Environment Variables
+Set these in your Render service (Settings > Environment):
+```
+NODE_ENV=production
+DATABASE_URL=your-database-connection-string
+SESSION_SECRET=your-random-session-secret
+FRONTEND_URL=https://your-frontend.vercel.app
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+GOOGLE_CALLBACK_URL=https://your-backend.onrender.com/auth/google/callback
+```
+- Make sure `GOOGLE_CALLBACK_URL` matches the one in Google Cloud Console.
+- Remove any Replit-related variables.
+
+### 3. Frontend (Vercel) Environment Variables
+Set this in your Vercel project (Settings > Environment Variables):
+```
+VITE_API_URL=https://your-backend.onrender.com
+```
+
+### 4. Health Check (Render)
+Add this route to your backend if not present:
+```js
+app.get('/health', (req, res) => res.send('OK'));
+```
+
+### 5. CORS
+- Ensure your backend only allows requests from your Vercel frontend domain (set `FRONTEND_URL` exactly, no trailing slash).
 
 ## Prerequisites
 

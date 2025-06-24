@@ -33,17 +33,19 @@
     "memoizee": "^0.4.17",
     "memorystore": "^1.6.7",
     "openid-client": "^6.6.1",
-    "passport": "^0.7.0",
+    "passport": "^0.6.0",
     "passport-local": "^1.0.0",
     "ws": "^8.18.0",
     "zod": "^3.24.2",
-    "zod-validation-error": "^3.4.0"
+    "zod-validation-error": "^3.4.0",
+    "passport-google-oauth20": "^2.0.0"
   },
   "devDependencies": {
     "@types/node": "20.16.11",
     "drizzle-kit": "^0.30.4",
     "tsx": "^4.19.1",
-    "typescript": "5.6.3"
+    "typescript": "5.6.3",
+    "@types/express-session": "^1.17.6"
   },
   "engines": {
     "node": ">=18.0.0"
