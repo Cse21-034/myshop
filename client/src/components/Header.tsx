@@ -107,16 +107,16 @@ export default function Header() {
                         </DropdownMenuItem>
                       )}
                       <DropdownMenuItem>
-                        <a href="/api/logout">Logout</a>
+                        <a href="/auth/logout">Logout</a>
                       </DropdownMenuItem>
                     </>
                   ) : (
                     <>
                       <DropdownMenuItem>
-                        <a href="/api/login">Login</a>
+                        <a href="/auth/google">Login with Google</a>
                       </DropdownMenuItem>
                       <DropdownMenuItem>
-                        <a href="/api/login">Register</a>
+                        <a href="/auth/google">Login with Google</a>
                       </DropdownMenuItem>
                     </>
                   )}
@@ -158,12 +158,12 @@ export default function Header() {
                         {user?.isAdmin && (
                           <Link href="/admin" className="text-lg">Admin</Link>
                         )}
-                        <a href="/api/logout" className="text-lg">Logout</a>
+                        <a href="/auth/logout" className="text-lg">Logout</a>
                       </>
                     ) : (
                       <>
-                        <a href="/api/login" className="text-lg">Login</a>
-                        <a href="/api/login" className="text-lg">Register</a>
+                        <a href="/auth/google" className="text-lg">Login with Google</a>
+                        <a href="/auth/google" className="text-lg">Login with Google</a>
                       </>
                     )}
                   </div>
