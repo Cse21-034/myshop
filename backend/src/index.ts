@@ -21,15 +21,15 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: false, limit: "10mb" }));
 
 // Request logging middleware
-app.use((req, res, next) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
   const start = Date.now();
   const path = req.path;
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
 
   const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
+  res.json = function (bodyJson: any) {
     capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
+    return originalResJson.call(res, bodyJson);
   };
 
   res.on("finish", () => {
@@ -52,7 +52,7 @@ app.use((req, res, next) => {
 });
 
 // Health check endpoint
-app.get("/health", (req, res) => {
+app.get("/health", (req: Request, res: Response) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
@@ -69,7 +69,7 @@ app.get("/health", (req, res) => {
   });
 
   // 404 handler
-  app.use("*", (req, res) => {
+  app.use("*", (req: Request, res: Response) => {
     res.status(404).json({ message: "Route not found" });
   });
 
@@ -81,4 +81,4 @@ app.get("/health", (req, res) => {
     console.log(`🚀 Server running on port ${port}`);
     console.log(`📊 Health check: http://localhost:${port}/health`);
   });
-})(); 
+})();
