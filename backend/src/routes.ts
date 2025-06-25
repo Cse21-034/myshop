@@ -16,15 +16,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   setupGoogleAuth(app);
 
   // Auth routes
-  app.get('/api/auth/user', isAuthenticated, async (req: Request, res: Response) => {
-    try {
-      const user = (req as any).user;
-      res.json(user);
-    } catch (error) {
-      console.error("Error fetching user:", error);
-      res.status(500).json({ message: "Failed to fetch user" });
+ app.get('/api/auth/user', async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    if (!user || !(req as any).isAuthenticated?.()) {
+      return res.json(null); // allow guest users
     }
-  });
+    res.json(user);
+  } catch (error) {
+    console.error("Error fetching user:", error);
+    res.status(500).json({ message: "Failed to fetch user" });
+  }
+});
+
 
   // Category routes
   app.get('/api/categories', async (req: Request, res: Response) => {
