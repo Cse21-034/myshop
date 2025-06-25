@@ -11,8 +11,8 @@ app.use(helmet());
 // Allowed origins list (you can add more if needed)
 const allowedOrigins = [
   (process.env.FRONTEND_URL || "http://localhost:3000").trim(),
-  "shop-fronted-kikjol3xo-leatiles-projects.vercel.app",
-  "shop-fronted-git-main-leatiles-projects.vercel.app",
+  "https://shop-fronted-kikjol3xo-leatiles-projects.vercel.app",
+  "https://shop-fronted-git-main-leatiles-projects.vercel.app",
   "https://shop-fronted.vercel.app",
 ];
 
