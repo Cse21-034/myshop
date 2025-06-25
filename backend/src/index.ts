@@ -8,17 +8,28 @@ const app = express();
 // Security middleware
 app.use(helmet());
 
-// CORS configuration for frontend
-const allowedOrigin = (process.env.FRONTEND_URL || "http://localhost:3000").trim();
+// Allowed origins list (you can add more if needed)
+const allowedOrigins = [
+  (process.env.FRONTEND_URL || "http://localhost:3000").trim(),
+  "shop-fronted-kikjol3xo-leatiles-projects.vercel.app",
+  "shop-fronted-git-main-leatiles-projects.vercel.app",
+  "https://shop-fronted.vercel.app",
+];
 
+// CORS configuration for frontend
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    // Only allow if origin matches allowedOrigin
-    if (origin === allowedOrigin) {
+    console.log("CORS Origin:", origin);
+    // Allow requests with no origin (like mobile apps, curl, Postman)
+    if (!origin) {
+      console.log("Allowing request with no origin");
       return callback(null, true);
     }
+    if (allowedOrigins.includes(origin)) {
+      console.log(`Allowing origin: ${origin}`);
+      return callback(null, true);
+    }
+    console.log(`Rejecting origin: ${origin}`);
     return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
