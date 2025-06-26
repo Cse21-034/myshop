@@ -95,11 +95,9 @@ app.get("/health", (req: Request, res: Response) => {
   });
 
   const port = process.env.PORT || 5000;
-  server.listen({
-    port: Number(port),
-    host: "0.0.0.0",
-  }, () => {
-    console.log(`🚀 Server running on port ${port}`);
-    console.log(`📊 Health check: http://localhost:${port}/health`);
-  });
+server.listen(Number(port), "0.0.0.0", () => {
+  console.log(`🚀 Server running on port ${port}`);
+  console.log(`📊 Health check: http://localhost:${port}/health`);
+});
+
 })();
