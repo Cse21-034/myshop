@@ -158,9 +158,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/cart', async (req: Request, res: Response) => {
     try {
+        console.log('Session ID:', (req as any).sessionID);
+    console.log('Is Authenticated:', (req as any).isAuthenticated?.());
+    console.log('User:', (req as any).user);
+      
       const userId = (req as any).isAuthenticated() ? (req as any).user.claims.sub : undefined;
       const sessionId = !userId ? (req as any).sessionID : undefined;
 
+    console.log('UserId:', userId, 'SessionId:', sessionId);
+      
       const cartItemData = {
         ...req.body,
         userId,
