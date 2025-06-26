@@ -1,14 +1,15 @@
-import express, { type Request, Response, NextFunction } from "express";
+import express, { type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import { registerRoutes } from "./routes";
+import { setupGoogleAuth } from "./googleAuth";
 
 const app = express();
 
-// Security middleware
+// ✅ Security middleware
 app.use(helmet());
 
-// Allowed origins list (you can add more if needed)
+// ✅ Allowed frontend origins
 const allowedOrigins = [
   (process.env.FRONTEND_URL || "http://localhost:3000").trim(),
   "https://shop-fronted-kikjol3xo-leatiles-projects.vercel.app",
@@ -16,11 +17,10 @@ const allowedOrigins = [
   "https://shop-fronted.vercel.app",
 ];
 
-// CORS configuration for frontend
+// ✅ CORS configuration
 app.use(cors({
   origin: function (origin, callback) {
     console.log("CORS Origin:", origin);
-    // Allow requests with no origin (like mobile apps, curl, Postman)
     if (!origin) {
       console.log("Allowing request with no origin");
       return callback(null, true);
@@ -30,18 +30,18 @@ app.use(cors({
       return callback(null, true);
     }
     console.log(`Rejecting origin: ${origin}`);
-    return callback(new Error('Not allowed by CORS'));
+    return callback(new Error("Not allowed by CORS"));
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "X-Session-Id"],
 }));
 
-// Body parsing middleware
+// ✅ Body parsing middleware
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: false, limit: "10mb" }));
 
-// Request logging middleware
+// ✅ Logging middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
   const start = Date.now();
   const path = req.path;
@@ -60,11 +60,9 @@ app.use((req: Request, res: Response, next: NextFunction) => {
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
-
       if (logLine.length > 80) {
         logLine = logLine.slice(0, 79) + "…";
       }
-
       console.log(logLine);
     }
   });
@@ -72,32 +70,34 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// Health check endpoint
+// ✅ Health check endpoint
 app.get("/health", (req: Request, res: Response) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+// ✅ Setup Google OAuth & Redis session
+setupGoogleAuth(app);
+
+// ✅ Register routes and start server
 (async () => {
   const server = await registerRoutes(app);
 
-  // Error handling middleware
+  // ✅ Global error handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
-
     console.error("Error:", err);
     res.status(status).json({ message });
   });
 
-  // 404 handler
-  app.use("*", (req: Request, res: Response) => {
+  // ✅ 404 handler
+  app.use("*", (_req: Request, res: Response) => {
     res.status(404).json({ message: "Route not found" });
   });
 
   const port = process.env.PORT || 5000;
-server.listen(Number(port), "0.0.0.0", () => {
-  console.log(`🚀 Server running on port ${port}`);
-  console.log(`📊 Health check: http://localhost:${port}/health`);
-});
-
+  server.listen(Number(port), "0.0.0.0", () => {
+    console.log(`🚀 Server running on port ${port}`);
+    console.log(`📊 Health check: http://localhost:${port}/health`);
+  });
 })();
