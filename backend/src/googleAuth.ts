@@ -32,9 +32,10 @@ export function setupGoogleAuth(app: Express) {
       },
     });
 
-    redisClient.on("error", (err) => {
-      console.error("❌ Redis error:", err);
-    });
+  redisClient.on("error", (err: Error) => {
+  console.error("❌ Redis error:", err.message);
+});
+
 
     redisClient.on("connect", () => {
       console.log("✅ Connected to Redis");
