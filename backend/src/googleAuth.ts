@@ -66,7 +66,7 @@ export function setupGoogleAuth(app: Express) {
 
   app.get("/auth/google/callback", passport.authenticate("google", {
     failureRedirect: "/?login=failed",
-    successReturnToOrRedirect: "/",
+    successReturnToOrRedirect: "https://shop-fronted.vercel.app",
   }));
 
   app.get("/auth/logout", (req: Request, res: Response) => {
