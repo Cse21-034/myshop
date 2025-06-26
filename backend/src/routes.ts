@@ -15,6 +15,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
   setupGoogleAuth(app);
 
+ // **Add sessionId extraction middleware here:**
+  app.use((req, res, next) => {
+    (req as any).sessionId = req.header("X-Session-Id");
+    next();
+  });
+  
   // Auth routes
  app.get('/api/auth/user', async (req: Request, res: Response) => {
   try {
