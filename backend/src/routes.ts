@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupGoogleAuth, isAuthenticated } from "./googleAuth";
+import {isAuthenticated } from "./googleAuth";
 import { 
   insertProductSchema,
   insertCategorySchema,
@@ -13,7 +13,7 @@ import { z } from "zod";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
-  setupGoogleAuth(app);
+//  setupGoogleAuth(app);
 
 // Middleware to attach X-Session-Id to req.sessionID
 app.use((req: Request, res: Response, next: NextFunction) => {
