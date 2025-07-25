@@ -22,9 +22,9 @@ app.use(
 // Allowed frontend origins
 const allowedOrigins = [
 (process.env.FRONTEND_URL || "http://localhost:3000").trim(),
-  "https://shop-fronted-kikjol3xo-leatiles-projects.vercel.app",
-  "https://shop-fronted-git-main-leatiles-projects.vercel.app",
-  "https://shop-fronted.vercel.app",
+  "https://test-front-6jtcnlax1-leatiles-projects.vercel.app",
+  "https://test-front-git-main-leatiles-projects.vercel.app",
+  "https://test-front-mocha.vercel.app",
 ];
 
 // CORS configuration
