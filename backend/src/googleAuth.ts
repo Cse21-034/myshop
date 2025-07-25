@@ -80,7 +80,7 @@ redisClient.connect().catch((err: Error) => {
   // Google OAuth Strategy
   const callbackURL =
     process.env.NODE_ENV === "production"
-      ? "https://myshop-qp1o.onrender.com/auth/google/callback"
+      ? "https://myshop-test-backend.onrender.com/auth/google/callback"
       : "http://localhost:5000/auth/google/callback";
 
   passport.use(
