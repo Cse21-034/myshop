@@ -45,25 +45,38 @@ export function setupGoogleAuth(app: Express) {
     sessionStore = new RedisStore({ client: redisClient });
   }
 
-  // Session middleware - Updated for better cross-origin support
+  // FIXED: Session middleware with proper cross-origin configuration
   app.use(
     session({
       secret: process.env.SESSION_SECRET,
       resave: false,
-      saveUninitialized: false, // Changed to false for better security
+      saveUninitialized: false,
       store: sessionStore,
       cookie: {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         maxAge: 7 * 24 * 60 * 60 * 1000,
-        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax", // Fixed for cross-origin
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+        // CRITICAL: Add domain configuration for cross-origin
+        domain: process.env.NODE_ENV === "production" 
+          ? ".onrender.com"  // This allows cookies to be shared across onrender.com subdomains
+          : undefined
       },
-      name: "session", // Explicit session name
+      name: "session",
+      // ADDED: Force session to be saved even if not modified
+      rolling: true,
     })
   );
 
-  // CSRF protection
-  app.use(csurf());
+  // MODIFIED: CSRF protection with cross-origin support
+  app.use(csurf({
+    cookie: {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    }
+  }));
+  
   app.use((req, res, next) => {
     res.locals.csrfToken = req.csrfToken();
     next();
@@ -130,7 +143,7 @@ export function setupGoogleAuth(app: Express) {
     })
   );
 
-  // Updated callback with better logging and error handling
+  // MODIFIED: Enhanced callback with session debugging
   app.get(
     "/auth/google/callback",
     passport.authenticate("google", { 
@@ -140,17 +153,30 @@ export function setupGoogleAuth(app: Express) {
       console.log("🔐 Auth callback - User:", req.user);
       console.log("🔐 Session ID:", req.sessionID);
       console.log("🔐 Is Authenticated:", req.isAuthenticated());
+      console.log("🔐 Session data:", req.session);
       
       try {
         const userId = (req.user as any).id;
         const sessionId = req.sessionID;
         
+        // Force session save before redirect
+        req.session.save((err) => {
+          if (err) {
+            console.error("❌ Session save error:", err);
+          } else {
+            console.log("✅ Session saved successfully");
+          }
+        });
+        
         // Merge guest cart with user
         await storage.mergeCart(sessionId, userId);
         console.log("✅ Cart merged successfully for user:", userId);
         
-        // Redirect with success parameter
-        res.redirect("https://test-front-mocha.vercel.app/?login=success");
+        // MODIFIED: Add a delay to ensure session is persisted
+        setTimeout(() => {
+          res.redirect("https://test-front-mocha.vercel.app/?login=success");
+        }, 100);
+        
       } catch (error) {
         console.error("❌ Cart merge failed:", error);
         res.redirect("https://test-front-mocha.vercel.app/?login=error");
@@ -164,32 +190,51 @@ export function setupGoogleAuth(app: Express) {
       if (err) {
         console.error("❌ Logout error:", err);
       }
-      res.redirect("https://test-front-mocha.vercel.app/?logout=success");
+      // Destroy session completely
+      req.session.destroy((err) => {
+        if (err) {
+          console.error("❌ Session destruction error:", err);
+        }
+        res.redirect("https://test-front-mocha.vercel.app/?logout=success");
+      });
     });
   });
 
-  // Add debug endpoint to check current auth state
+  // Enhanced debug endpoint
   app.get("/api/auth/debug", (req, res) => {
     res.json({
       isAuthenticated: req.isAuthenticated(),
       user: req.user || null,
       sessionID: req.sessionID,
       hasSession: !!req.session,
+      sessionData: req.session,
       cookies: req.headers.cookie || 'No cookies',
-      userAgent: req.headers['user-agent']
+      userAgent: req.headers['user-agent'],
+      origin: req.headers.origin,
+      referer: req.headers.referer
     });
   });
 
-  // Updated user endpoint with better logging
+  // Enhanced user endpoint with better session debugging
   app.get("/api/auth/user", (req, res) => {
     console.log("🔍 Auth check - Is Authenticated:", req.isAuthenticated());
     console.log("🔍 Auth check - User:", req.user);
     console.log("🔍 Auth check - Session ID:", req.sessionID);
+    console.log("🔍 Auth check - Session exists:", !!req.session);
+    console.log("🔍 Auth check - Cookies:", req.headers.cookie);
     
     if (req.isAuthenticated() && req.user) {
       res.json(req.user);
     } else {
-      res.status(401).json({ message: "Not authenticated" });
+      res.status(401).json({ 
+        message: "Not authenticated",
+        debug: {
+          isAuthenticated: req.isAuthenticated(),
+          hasUser: !!req.user,
+          sessionID: req.sessionID,
+          hasSession: !!req.session
+        }
+      });
     }
   });
 
