@@ -2,6 +2,6 @@ import "express";
 
 declare module "express" {
   interface Request {
-    csrfToken?: () => string;
+    csrfToken(): string;
   }
 }
