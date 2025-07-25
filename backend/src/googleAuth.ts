@@ -43,9 +43,10 @@ redisClient.on("error", (err: Error) => {
       console.log("✅ Connected to Redis");
     });
     
-    redisClient.connect().catch((err) => {
-      console.error("❌ Redis connection failed:", err.message);
-    });
+   
+redisClient.connect().catch((err: Error) => {
+  console.error("❌ Redis connection failed:", err.message);
+});
 
     sessionStore = new RedisStore({ client: redisClient });
   }
