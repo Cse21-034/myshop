@@ -29,12 +29,20 @@ export function setupGoogleAuth(app: Express) {
         reconnectStrategy: (retries: number) => Math.min(retries * 100, 3000), // <-- typed here
       },
     });
- redisClient.on("error", (err: Error) => { // <-- typed here 
-      console.error("❌ Redis error:", err.message);
-    });
+    
+ 
+
+redisClient.on("error", (err: Error) => {
+  console.error("❌ Redis error:", err.message);
+});
+
+
+
+    
     redisClient.on("connect", () => {
       console.log("✅ Connected to Redis");
     });
+    
     redisClient.connect().catch((err) => {
       console.error("❌ Redis connection failed:", err.message);
     });
