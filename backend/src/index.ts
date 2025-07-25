@@ -1,15 +1,25 @@
 import express, { type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { setupGoogleAuth } from "./googleAuth";
 
 const app = express();
 
-// ✅ Security middleware
+// Security middleware
 app.use(helmet());
 
-// ✅ Allowed frontend origins
+// Rate limiting
+app.use(
+  rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // Limit each IP to 100 requests
+    message: { message: "Too many requests, please try again later" },
+  })
+);
+
+// Allowed frontend origins
 const allowedOrigins = [
   (process.env.FRONTEND_URL || "http://localhost:3000").trim(),
   "https://shop-fronted-kikjol3xo-leatiles-projects.vercel.app",
@@ -17,35 +27,32 @@ const allowedOrigins = [
   "https://shop-fronted.vercel.app",
 ];
 
-// ✅ CORS configuration
-app.use(cors({
-  origin: function (origin, callback) {
-    console.log("CORS Origin:", origin);
-    if (!origin) {
-      console.log("Allowing request with no origin");
-      return callback(null, true);
-    }
-    if (allowedOrigins.includes(origin)) {
-      console.log(`Allowing origin: ${origin}`);
-      return callback(null, true);
-    }
-    console.log(`Rejecting origin: ${origin}`);
-    return callback(new Error("Not allowed by CORS"));
-  },
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "X-Session-Id"],
-}));
+// CORS configuration
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      console.log("CORS Origin:", origin);
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"],
+  })
+);
 
-// ✅ Body parsing middleware
+// Body parsing middleware
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: false, limit: "10mb" }));
 
-// ✅ Logging middleware
+// Logging middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+  let capturedJsonResponse: Record<string, any> | undefined;
 
   const originalResJson = res.json;
   res.json = function (bodyJson: any) {
@@ -70,27 +77,27 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// ✅ Health check endpoint
+// Health check endpoint
 app.get("/health", (req: Request, res: Response) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// ✅ Setup Google OAuth & Redis session
+// Setup Google OAuth & session
 setupGoogleAuth(app);
 
-// ✅ Register routes and start server
+// Register routes and start server
 (async () => {
   const server = await registerRoutes(app);
 
-  // ✅ Global error handler
+  // Global error handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
-    console.error("Error:", err);
-    res.status(status).json({ message });
+    console.error(`[${_req.method} ${_req.path}] Error (${status}):`, err.stack);
+    res.status(status).json({ message, code: err.code || "UNKNOWN" });
   });
 
-  // ✅ 404 handler
+  // 404 handler
   app.use("*", (_req: Request, res: Response) => {
     res.status(404).json({ message: "Route not found" });
   });
