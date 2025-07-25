@@ -26,11 +26,10 @@ export function setupGoogleAuth(app: Express) {
       url: process.env.REDIS_URL,
       socket: {
         tls: true,
-        reconnectStrategy: (retries) => Math.min(retries * 100, 3000),
+        reconnectStrategy: (retries: number) => Math.min(retries * 100, 3000), // <-- typed here
       },
     });
-
-    redisClient.on("error", (err: Error) => {
+ redisClient.on("error", (err: Error) => { // <-- typed here 
       console.error("❌ Redis error:", err.message);
     });
     redisClient.on("connect", () => {
