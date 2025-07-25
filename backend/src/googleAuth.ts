@@ -138,7 +138,7 @@ redisClient.connect().catch((err: Error) => {
       const userId = (req.user as any).id;
       const sessionId = req.sessionID;
       await storage.mergeCart(sessionId, userId);
-      res.redirect("https://shop-fronted.vercel.app");
+      res.redirect("https://test-front-mocha.vercel.app");
     }
   );
 
