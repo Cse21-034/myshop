@@ -82,13 +82,13 @@ setupGoogleAuth(app);
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
     
-    console.error(`[${_req.method} ${_req.path}] Error (${status}):`, err.stack);
+    console.error(`[${req.method} ${req.path}] Error (${status}):`, err.stack);
     
     res.status(status).json({ message, code: err.code || "UNKNOWN" });
   });
   
   // 404 handler
-  app.use("*", (_req: Request, res: Response) => {
+  app.use("*", (req: Request, res: Response) => {
     res.status(404).json({ message: "Route not found" });
   });
   
