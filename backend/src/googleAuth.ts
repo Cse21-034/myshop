@@ -55,31 +55,30 @@ export function setupGoogleAuth(app: Express) {
     sessionStore = new RedisStore({ client: redisClient });
   }
 
-  // ✅ Session middleware - FIXED for cross-origin support
+  // ✅ Session middleware - Updated for cross-origin support
   app.use(
     session({
       secret: process.env.SESSION_SECRET,
       resave: false,
-      saveUninitialized: true, // CHANGED: Set to true for cross-origin to work
-      store: sessionStore,
+      saveUninitialized: false, // Better security
+      store: sessionStore, // May be undefined in development (uses MemoryStore)
       cookie: {
         httpOnly: true,
-        secure: true, // CHANGED: Always true since Render uses HTTPS
+        secure: process.env.NODE_ENV === "production", // https only in prod
         maxAge: 7 * 24 * 60 * 60 * 1000, // 1 week
-        sameSite: "none", // CHANGED: Always "none" for cross-origin
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax", // Critical for cross-origin
+        // DO NOT set domain - let it default to the request domain
       },
-      name: "connect.sid", // CHANGED: Use default session name
-      rolling: true, // ADDED: Reset expiration on each request
+      name: "session", // Explicit session name
     })
   );
 
-  // Remove CSRF for now to isolate the session issue
   // CSRF protection setup
-  // app.use(csurf());
-  // app.use((req, res, next) => {
-  //   res.locals.csrfToken = req.csrfToken();
-  //   next();
-  // });
+  app.use(csurf());
+  app.use((req, res, next) => {
+    res.locals.csrfToken = req.csrfToken();
+    next();
+  });
 
   app.use(passport.initialize());
   app.use(passport.session());
@@ -204,9 +203,9 @@ export function setupGoogleAuth(app: Express) {
     });
   });
 
-  // CSRF token endpoint - Temporary mock since CSRF is disabled
+  // CSRF token endpoint
   app.get("/api/csrf-token", (req: Request, res: Response) => {
-    res.json({ csrfToken: "mock-token" });
+    res.json({ csrfToken: req.csrfToken() });
   });
 
   // Auth user endpoint - THIS WAS MISSING!
