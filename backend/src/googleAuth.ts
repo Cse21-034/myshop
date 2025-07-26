@@ -151,17 +151,42 @@ sessionStore = new RedisStore({
   });
 
   // ✅ Deserialize user session
-  passport.deserializeUser(async (user: any, done) => {
-    try {
-      console.log("🔐 Deserializing user:", user.id);
+//  passport.deserializeUser(async (user: any, done) => {
+//    try {
+//      console.log("🔐 Deserializing user:", user.id);
       // Try to get fresh user data from database
-      const dbUser = await storage.getUser(user.id);
-      done(null, dbUser || user);
-    } catch (err) {
-      console.error("❌ Deserialization error:", err);
-      done(err);
+ //     const dbUser = await storage.getUser(user.id);
+ //     done(null, dbUser || user);
+ //   } catch (err) {
+  //    console.error("❌ Deserialization error:", err);
+  //    done(err);
+  //  }
+//  });
+  
+passport.deserializeUser(async (user: any, done) => {
+  try {
+    const cacheKey = `user:${user.id}`;
+    let dbUser = await redisClient.get(cacheKey);
+    if (!dbUser) {
+      dbUser = await storage.getUser(user.id);
+      if (redisClient.exists) {
+        await redisClient.setEx(cacheKey, 3600, JSON.stringify(dbUser)); // Cache for 1 hour
+      }
+    } else {
+      dbUser = JSON.parse(dbUser);
     }
-  });
+    done(null, dbUser);
+  } catch (err) {
+    console.error("❌ Deserialization Error:", err);
+    done(err);
+  }
+});
+
+
+
+
+
+  
 
   // ✅ Auth routes
   app.get(
