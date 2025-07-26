@@ -52,7 +52,15 @@ export function setupGoogleAuth(app: Express) {
       console.error("❌ Redis connection failed:", err.message);
     });
 
-    sessionStore = new RedisStore({ client: redisClient });
+   
+
+sessionStore = new RedisStore({
+  client: redisClient,
+  ttl: 7 * 24 * 60 * 60, // 7 days in seconds, matching cookie.maxAge
+});
+
+
+    
   }
 
   // ✅ Session middleware - Updated for cross-origin support
