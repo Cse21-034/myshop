@@ -42,19 +42,10 @@ app.use(
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token","X-Requested-With","Accept","Origin"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token","X-Requested-With"],
     exposedHeaders: ['Set-Cookie'],
-    optionsSuccessStatus: 200,
   })
 );
-
-app.options('*', cors());
-
-// Add this middleware to log CORS origins for debugging
-app.use((req, res, next) => {
-  console.log('CORS Origin:', req.headers.origin);
-  next();
-});
 
 // Body parsing middleware
 app.use(express.json({ limit: "10mb" }));
