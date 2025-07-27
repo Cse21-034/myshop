@@ -66,22 +66,22 @@ export function setupGoogleAuth(app: Express) {
     });
 
     // Periodic cleanup of stale sessions
-   // async function cleanupStaleSessions() {
-    //  const sessions = await redisClient.keys("sess:*");
-     // for (const sessionKey of sessions) {
-      //  const sessionData = await redisClient.get(sessionKey);
+   async function cleanupStaleSessions() {
+      const sessions = await redisClient.keys("sess:*");
+     for (const sessionKey of sessions) {
+        const sessionData = await redisClient.get(sessionKey);
         
-     //   if (sessionData && /* Add logic to check if session is expired */) {
-    //      await redisClient.delAsync(sessionKey);
-   //       console.log(`🧹 Cleaned up stale session: ${sessionKey}`);
-   //     }
-   //   }
-  //  }
-  //  setInterval(cleanupStaleSessions, 24 * 60 * 60 * 1000); // Run daily
- // }
+        if (sessionData ) {
+          await redisClient.delAsync(sessionKey);
+         console.log(`🧹 Cleaned up stale session: ${sessionKey}`);
+       }
+      }
+   }
+    setInterval(cleanupStaleSessions, 24 * 60 * 60 * 1000); // Run daily
+ }
 
 
-    // Periodic cleanup of stale sessions
+    /*Periodic cleanup of stale sessions
     async function cleanupStaleSessions() {
       const sessions = await redisClient.keys("sess:*");
       for (const sessionKey of sessions) {
@@ -96,8 +96,8 @@ export function setupGoogleAuth(app: Express) {
         }
       }
     }
-    setInterval(cleanupStaleSessions, 24 * 60 * 60 * 1000); // Run daily
-  }
+ //   setInterval(cleanupStaleSessions, 24 * 60 * 60 * 1000); // Run daily
+//  }*/
 
 
 
