@@ -66,19 +66,57 @@ export function setupGoogleAuth(app: Express) {
     });
 
     // Periodic cleanup of stale sessions
+   // async function cleanupStaleSessions() {
+    //  const sessions = await redisClient.keys("sess:*");
+     // for (const sessionKey of sessions) {
+      //  const sessionData = await redisClient.get(sessionKey);
+        
+     //   if (sessionData && /* Add logic to check if session is expired */) {
+    //      await redisClient.delAsync(sessionKey);
+   //       console.log(`🧹 Cleaned up stale session: ${sessionKey}`);
+   //     }
+   //   }
+  //  }
+  //  setInterval(cleanupStaleSessions, 24 * 60 * 60 * 1000); // Run daily
+ // }
+
+
+    // Periodic cleanup of stale sessions
     async function cleanupStaleSessions() {
       const sessions = await redisClient.keys("sess:*");
       for (const sessionKey of sessions) {
-        const sessionData = await redisClient.get(sessionKey);
-        
-        if (sessionData && /* Add logic to check if session is expired */) {
-          await redisClient.delAsync(sessionKey);
-          console.log(`🧹 Cleaned up stale session: ${sessionKey}`);
+        const sessionData = await redisClient.getAsync(sessionKey);
+        if (sessionData) {
+          const session = JSON.parse(sessionData);
+          const expiry = session.cookie?.expires;
+          if (expiry && new Date(expiry) < new Date()) {
+            await redisClient.delAsync(sessionKey);
+            console.log(`🧹 Cleaned up stale session: ${sessionKey}`);
+          }
         }
       }
     }
     setInterval(cleanupStaleSessions, 24 * 60 * 60 * 1000); // Run daily
   }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
 
   // Session middleware
   app.use(
