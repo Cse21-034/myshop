@@ -264,7 +264,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createOrder(order: InsertOrder, items: InsertOrderItem[]): Promise<Order> {
-    const [newOrder] = await db.insert(orders).values(order).returning();
+    const [newOrder] = await db.insert(orders).values({
+      ...order,
+      paymentIntentId: order.paymentIntentId,
+      paypalOrderId: order.paypalOrderId,
+      orangeMoneyTransactionId: order.orangeMoneyTransactionId,
+    }).returning();
     const orderItemsWithOrderId = items.map((item) => ({ ...item, orderId: newOrder.id }));
     await db.insert(orderItems).values(orderItemsWithOrderId);
     return newOrder;
