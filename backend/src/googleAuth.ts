@@ -29,9 +29,10 @@ export function setupGoogleAuth(app: Express) {
   app.set("trust proxy", 1); // Needed for proxies like Render/Vercel
 
   // Redis setup
+  let redisClient: any; // Temporary any type to avoid TS errors
   let sessionStore;
   if (process.env.REDIS_URL && process.env.NODE_ENV === "production") {
-    const redisClient = createClient({
+    redisClient = createClient({
       url: process.env.REDIS_URL,
       socket: {
         tls: true,
@@ -62,26 +63,10 @@ export function setupGoogleAuth(app: Express) {
 
     sessionStore = new RedisStore({
       client: redisClient,
-      ttl: 7 * 24 * 60 * 60, // 7 days in seconds
+      // Removed invalid 'ttl' option; session TTL is set via cookie.maxAge
     });
 
     // Periodic cleanup of stale sessions
-   async function cleanupStaleSessions() {
-      const sessions = await redisClient.keys("sess:*");
-     for (const sessionKey of sessions) {
-        const sessionData = await redisClient.get(sessionKey);
-        
-        if (sessionData ) {
-          await redisClient.delAsync(sessionKey);
-         console.log(`🧹 Cleaned up stale session: ${sessionKey}`);
-       }
-      }
-   }
-    setInterval(cleanupStaleSessions, 24 * 60 * 60 * 1000); // Run daily
- }
-
-
-    /*Periodic cleanup of stale sessions
     async function cleanupStaleSessions() {
       const sessions = await redisClient.keys("sess:*");
       for (const sessionKey of sessions) {
@@ -96,27 +81,8 @@ export function setupGoogleAuth(app: Express) {
         }
       }
     }
- //   setInterval(cleanupStaleSessions, 24 * 60 * 60 * 1000); // Run daily
-//  }*/
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  
+    setInterval(cleanupStaleSessions, 24 * 60 * 60 * 1000); // Run daily
+  }
 
   // Session middleware
   app.use(
@@ -130,8 +96,9 @@ export function setupGoogleAuth(app: Express) {
         secure: process.env.NODE_ENV === "production",
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
         sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-        name: "session",
+        // Removed invalid 'name' option; use 'name' at the session level
       },
+      name: "session", // Moved name to session options
     })
   );
 
@@ -183,9 +150,9 @@ export function setupGoogleAuth(app: Express) {
             lastName: user.lastName,
             profileImageUrl: user.profileImageUrl,
           });
-        } catch (err) {
+        } catch (err: unknown) {
           console.error("❌ Google OAuth error:", err);
-          done(err as Error);
+          done(err instanceof Error ? err : new Error(String(err)));
         }
       }
     )
@@ -201,22 +168,22 @@ export function setupGoogleAuth(app: Express) {
   passport.deserializeUser(async (user: any, done) => {
     try {
       const cacheKey = `user:${user.id}`;
-      let dbUser = await redisClient.getAsync(cacheKey);
+      let dbUser = await redisClient?.getAsync?.(cacheKey);
       if (!dbUser) {
         dbUser = await storage.getUser(user.id);
         if (!dbUser) {
           console.warn("❌ User not found in DB:", user.id);
           return done(null, null); // Clear session if user not found
         }
-        await redisClient.setExAsync(cacheKey, 3600, JSON.stringify(dbUser)); // Cache for 1 hour
+        await redisClient?.setExAsync?.(cacheKey, 3600, JSON.stringify(dbUser)); // Cache for 1 hour
         console.log("✅ Cached user in Redis:", user.id);
       } else {
         dbUser = JSON.parse(dbUser);
       }
       done(null, dbUser);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("❌ Deserialization error:", err);
-      done(err);
+      done(err instanceof Error ? err : new Error(String(err)));
     }
   });
 
