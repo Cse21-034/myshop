@@ -1,3 +1,4 @@
+// routes.ts
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
@@ -11,9 +12,11 @@ import {
   insertContactMessageSchema,
 } from "./schema";
 import { z } from "zod";
+import csurf from "csurf";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Auth routes
+  const csrfProtection = csurf();
+
   app.get("/api/auth/user", async (req: Request, res: Response) => {
     try {
       const user = req.isAuthenticated() ? req.user : null;
@@ -24,8 +27,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Payment routes
-  app.post("/api/payments/stripe/create", async (req: Request, res: Response) => {
+  app.post("/api/payments/stripe/create", csrfProtection, async (req: Request, res: Response) => {
     try {
       const { amount, currency } = req.body;
       const clientSecret = await createStripePaymentIntent(amount, currency);
@@ -36,7 +38,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/payments/paypal/create", async (req: Request, res: Response) => {
+  app.post("/api/payments/paypal/create", csrfProtection, async (req: Request, res: Response) => {
     try {
       const { amount, currency } = req.body;
       const orderId = await createPayPalOrder(amount, currency);
@@ -47,7 +49,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/payments/paypal/capture", async (req: Request, res: Response) => {
+  app.post("/api/payments/paypal/capture", csrfProtection, async (req: Request, res: Response) => {
     try {
       const { orderId } = req.body;
       await capturePayPalOrder(orderId);
@@ -58,7 +60,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/payments/orangemoney/initiate", async (req: Request, res: Response) => {
+  app.post("/api/payments/orangemoney/initiate", csrfProtection, async (req: Request, res: Response) => {
     try {
       const { phone, amount, currency } = req.body;
       const transactionId = await initiateOrangeMoneyPayment(phone, amount, currency);
@@ -69,7 +71,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Category routes
   app.get("/api/categories", async (req: Request, res: Response) => {
     try {
       const categories = await storage.getCategories();
@@ -95,7 +96,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Product routes
   app.get("/api/products", async (req: Request, res: Response) => {
     try {
       const filters = {
@@ -174,7 +174,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Cart routes
   app.get("/api/cart", async (req: Request, res: Response) => {
     try {
       const userId = req.isAuthenticated() ? (req.user as any).id : undefined;
@@ -187,7 +186,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/cart", async (req: Request, res: Response) => {
+  app.post("/api/cart", csrfProtection, async (req: Request, res: Response) => {
     try {
       const userId = req.isAuthenticated() ? (req.user as any).id : undefined;
       const sessionId = req.sessionID;
@@ -201,7 +200,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/cart/:id", async (req: Request, res: Response) => {
+  app.put("/api/cart/:id", csrfProtection, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       const { quantity } = req.body;
@@ -216,7 +215,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/cart/:id", async (req: Request, res: Response) => {
+  app.delete("/api/cart/:id", csrfProtection, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       await storage.removeFromCart(id);
@@ -227,7 +226,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/cart", async (req: Request, res: Response) => {
+  app.delete("/api/cart", csrfProtection, async (req: Request, res: Response) => {
     try {
       const userId = req.isAuthenticated() ? (req.user as any).id : undefined;
       const sessionId = req.sessionID;
@@ -239,8 +238,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Order routes
-  app.post("/api/orders", async (req: Request, res: Response) => {
+  app.post("/api/orders", csrfProtection, async (req: Request, res: Response) => {
     try {
       const userId = req.isAuthenticated() ? (req.user as any).id : undefined;
       const sessionId = req.sessionID;
@@ -287,7 +285,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Contact routes
   app.post("/api/contact", async (req: Request, res: Response) => {
     try {
       const validatedData = insertContactMessageSchema.parse(req.body);
@@ -313,7 +310,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Admin stats route
   app.get("/api/admin/stats", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const user = await storage.getUser((req.user as any).id);
