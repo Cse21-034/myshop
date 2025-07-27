@@ -1,15 +1,4 @@
-import {
-  pgTable,
-  text,
-  varchar,
-  timestamp,
-  jsonb,
-  index,
-  serial,
-  integer,
-  decimal,
-  boolean,
-} from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, jsonb, index, serial, integer, decimal, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
@@ -79,6 +68,9 @@ export const orders = pgTable("orders", {
   state: varchar("state").notNull(),
   zipCode: varchar("zip_code").notNull(),
   paymentMethod: varchar("payment_method").notNull(),
+  paymentIntentId: varchar("payment_intent_id"), // Added for Stripe
+  paypalOrderId: varchar("paypal_order_id"), // Added for PayPal
+  orangeMoneyTransactionId: varchar("orange_money_transaction_id"), // Added for Orange Money
   subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
   shipping: decimal("shipping", { precision: 10, scale: 2 }).notNull(),
   tax: decimal("tax", { precision: 10, scale: 2 }).notNull(),
@@ -208,6 +200,14 @@ export const insertProductSchema = createInsertSchema(products).omit({
 export const insertOrderSchema = createInsertSchema(orders).omit({
   id: true,
   createdAt: true,
+}).extend({
+  paymentIntentId: z.string().optional(), // Added for Stripe
+  paypalOrderId: z.string().optional(), // Added for PayPal
+  orangeMoneyTransactionId: z.string().optional(), // Added for Orange Money
+});
+
+export const insertOrderItemSchema = createInsertSchema(orderItems).omit({
+  id: true,
 });
 
 export const insertCartItemSchema = createInsertSchema(cartItems).omit({
