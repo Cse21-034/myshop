@@ -276,13 +276,14 @@ export class DatabaseStorage implements IStorage {
         userCartItems.map((item) => `${item.productId}-${item.size || ''}-${item.color || ''}`)
       );
 
-      // Fetch guest cart items
+      // Fetch guest cart items, excluding those with null productId
       const guestCartItems = await db
         .select()
         .from(cartItems)
-        .where(eq(cartItems.sessionId, sessionId));
+        .where(and(eq(cartItems.sessionId, sessionId), sql`${cartItems.productId} IS NOT NULL`));
 
       for (const item of guestCartItems) {
+        if (!item.productId) continue; // Skip items with null productId
         const itemKey = `${item.productId}-${item.size || ''}-${item.color || ''}`;
         if (!userCartSet.has(itemKey)) {
           // Update guest cart item to user ID
