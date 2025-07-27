@@ -2,6 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { isAuthenticated } from "./googleAuth";
+import { createStripePaymentIntent, capturePayPalOrder, createPayPalOrder, initiateOrangeMoneyPayment } from "./payment";
 import {
   insertProductSchema,
   insertCategorySchema,
@@ -20,6 +21,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user", code: "FETCH_USER_ERROR" });
+    }
+  });
+
+  // Payment routes
+  app.post("/api/payments/stripe/create", async (req: Request, res: Response) => {
+    try {
+      const { amount, currency } = req.body;
+      const clientSecret = await createStripePaymentIntent(amount, currency);
+      res.json({ clientSecret });
+    } catch (error) {
+      console.error("Error creating Stripe payment intent:", error);
+      res.status(500).json({ message: "Failed to create payment intent", code: "STRIPE_CREATE_ERROR" });
+    }
+  });
+
+  app.post("/api/payments/paypal/create", async (req: Request, res: Response) => {
+    try {
+      const { amount, currency } = req.body;
+      const orderId = await createPayPalOrder(amount, currency);
+      res.json({ orderId });
+    } catch (error) {
+      console.error("Error creating PayPal order:", error);
+      res.status(500).json({ message: "Failed to create PayPal order", code: "PAYPAL_CREATE_ERROR" });
+    }
+  });
+
+  app.post("/api/payments/paypal/capture", async (req: Request, res: Response) => {
+    try {
+      const { orderId } = req.body;
+      await capturePayPalOrder(orderId);
+      res.json({ status: "success" });
+    } catch (error) {
+      console.error("Error capturing PayPal order:", error);
+      res.status(500).json({ message: "Failed to capture PayPal order", code: "PAYPAL_CAPTURE_ERROR" });
+    }
+  });
+
+  app.post("/api/payments/orangemoney/initiate", async (req: Request, res: Response) => {
+    try {
+      const { phone, amount, currency } = req.body;
+      const transactionId = await initiateOrangeMoneyPayment(phone, amount, currency);
+      res.json({ transactionId });
+    } catch (error) {
+      console.error("Error initiating Orange Money payment:", error);
+      res.status(500).json({ message: "Failed to initiate Orange Money payment", code: "ORANGEMONEY_INITIATE_ERROR" });
     }
   });
 
