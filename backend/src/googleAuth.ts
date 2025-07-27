@@ -70,6 +70,7 @@ export function setupGoogleAuth(app: Express) {
       const sessions = await redisClient.keys("sess:*");
       for (const sessionKey of sessions) {
         const sessionData = await redisClient.get(sessionKey);
+        
         if (sessionData && /* Add logic to check if session is expired */) {
           await redisClient.delAsync(sessionKey);
           console.log(`🧹 Cleaned up stale session: ${sessionKey}`);
