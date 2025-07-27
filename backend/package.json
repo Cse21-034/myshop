@@ -46,7 +46,7 @@
     "@types/cors": "^2.8.19",
     "@types/csurf": "^1.11.5",
     "@types/express": "^4.17.21",
-    "@types/express-rate-limit": "^7.0.0",
+    "@types/express-rate-limit": "^6.0.0",
     "@types/express-session": "^1.18.0",
     "@types/jsonwebtoken": "^9.0.7",
     "@types/memoizee": "^0.4.12",
