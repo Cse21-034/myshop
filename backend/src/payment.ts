@@ -1,77 +1,68 @@
-import Stripe from "stripe";
+import { Request, Response } from "express";
 import paypal from "paypal-rest-sdk";
-import axios from "axios";
+import axios, { AxiosResponse } from "axios";
+import { z } from "zod";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-06-20",
+const paypalPaymentSchema = z.object({
+  amount: z.number().positive(),
+  currency: z.string().min(3).max(3),
+  description: z.string().optional(),
 });
 
-paypal.configure({
-  mode: process.env.NODE_ENV === "production" ? "live" : "sandbox",
-  client_id: process.env.PAYPAL_CLIENT_ID!,
-  client_secret: process.env.PAYPAL_CLIENT_SECRET!,
+const orangeMoneyPaymentSchema = z.object({
+  phone: z.string().regex(/^\+\d{10,}$/),
+  amount: z.number().positive(),
+  currency: z.string().min(3).max(3),
 });
 
-export async function createStripePaymentIntent(amount: number, currency: string): Promise<string> {
+export async function initiatePaypalPayment(req: Request, res: Response) {
   try {
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount,
-      currency,
-      payment_method_types: ["card"],
-    });
-    return paymentIntent.client_secret!;
-  } catch (error) {
-    console.error("Stripe payment intent creation failed:", error);
-    throw new Error("Failed to create Stripe payment intent");
-  }
-}
+    const { amount, currency, description } = paypalPaymentSchema.parse(req.body);
 
-export async function createPayPalOrder(amount: number, currency: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const order = {
-      intent: "CAPTURE",
-      purchase_units: [
+    paypal.configure({
+      mode: process.env.PAYPAL_MODE || "sandbox",
+      client_id: process.env.PAYPAL_CLIENT_ID!,
+      client_secret: process.env.PAYPAL_CLIENT_SECRET!,
+    });
+
+    const createPaymentJson = {
+      intent: "sale",
+      payer: { payment_method: "paypal" },
+      redirect_urls: {
+        return_url: `${process.env.API_BASE}/payment/paypal/success`,
+        cancel_url: `${process.env.API_BASE}/payment/paypal/cancel`,
+      },
+      transactions: [
         {
-          amount: {
-            currency_code: currency,
-            value: amount.toFixed(2),
-          },
+          amount: { total: amount.toFixed(2), currency },
+          description: description || "MyShop Purchase",
         },
       ],
-      application_context: {
-        return_url: "https://myshop-test-backend.onrender.com/api/payments/paypal/capture",
-        cancel_url: "https://test-front-mocha.vercel.app/checkout",
-      },
     };
 
-    paypal.payment.create(order, (error, payment) => {
+    paypal.payment.create(createPaymentJson, (error: any, payment: any) => {
       if (error) {
-        console.error("PayPal order creation failed:", error);
-        reject(new Error("Failed to create PayPal order"));
+        console.error("❌ PayPal payment creation failed:", error);
+        return res.status(500).json({ error: "Failed to initiate PayPal payment" });
+      }
+      const approvalUrl = payment.links.find((link: any) => link.rel === "approval_url")?.href;
+      if (approvalUrl) {
+        res.json({ approvalUrl });
       } else {
-        resolve(payment.id!);
+        res.status(500).json({ error: "No approval URL found" });
       }
     });
-  });
-}
-
-export async function capturePayPalOrder(orderId: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    paypal.payment.execute(orderId, {}, (error, payment) => {
-      if (error) {
-        console.error("PayPal order capture failed:", error);
-        reject(new Error("Failed to capture PayPal order"));
-      } else {
-        resolve();
-      }
-    });
-  });
+  } catch (error) {
+    console.error("❌ PayPal payment validation failed:", error);
+    res.status(400).json({ error: "Invalid payment data" });
+  }
 }
 
 export async function initiateOrangeMoneyPayment(phone: string, amount: number, currency: string): Promise<string> {
   try {
-    // Placeholder: Replace with actual Orange Money API call
-    const response = await axios.post(
+    orangeMoneyPaymentSchema.parse({ phone, amount, currency });
+
+    const response: AxiosResponse = await axios.post(
       `${process.env.ORANGE_MONEY_API_URL}/payment`,
       {
         phone,
@@ -81,13 +72,30 @@ export async function initiateOrangeMoneyPayment(phone: string, amount: number, 
       },
       {
         headers: {
-          Authorization: `Bearer ${process.env.ORANGE_MONEY_CLIENT_ID}:${process.env.ORANGE_MONEY_CLIENT_SECRET}`,
+          Authorization: `Bearer ${await getOrangeMoneyToken()}`,
         },
       }
     );
-    return response.data.transactionId; // Adjust based on actual API response
-  } catch (error) {
+    return response.data.transactionId;
+  } catch (error: any) {
     console.error("Orange Money payment initiation failed:", error);
     throw new Error("Failed to initiate Orange Money payment");
+  }
+}
+
+async function getOrangeMoneyToken(): Promise<string> {
+  try {
+    const response: AxiosResponse = await axios.post(
+      `${process.env.ORANGE_MONEY_API_URL}/token`,
+      {
+        client_id: process.env.ORANGE_MONEY_CLIENT_ID,
+        client_secret: process.env.ORANGE_MONEY_CLIENT_SECRET,
+        grant_type: "client_credentials",
+      }
+    );
+    return response.data.access_token;
+  } catch (error: any) {
+    console.error("Orange Money token fetch failed:", error);
+    throw new Error("Failed to fetch Orange Money token");
   }
 }
