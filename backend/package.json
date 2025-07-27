@@ -41,8 +41,10 @@
     "passport-google-oauth20": "^2.0.0",
     "connect-redis": "^7.0.0",
     "redis": "^4.6.7",
-      "csurf": "^1.11.0",
-  "express-rate-limit": "^6.7.0"
+    "csurf": "^1.11.0",
+    "express-rate-limit": "^6.7.0",
+    "paypal-rest-sdk": "^1.8.1",
+    "stripe": "^16.8.0"
   },
   "devDependencies": {
     "@types/node": "20.16.11",
