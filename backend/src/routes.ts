@@ -1,4 +1,4 @@
-// routes.ts
+// server/src/routes.ts
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
@@ -27,10 +27,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/auth/refresh", csrfProtection, async (req: Request, res: Response) => {
+    try {
+      const { refreshToken } = req.body;
+      if (!refreshToken) {
+        return res.status(400).json({ message: "Refresh token required" });
+      }
+      // The refresh logic is handled in googleAuth.ts
+    } catch (error) {
+      console.error("Error refreshing token:", error);
+      res.status(401).json({ message: "Invalid or expired refresh token" });
+    }
+  });
+
   app.post("/api/payments/stripe/create", csrfProtection, async (req: Request, res: Response) => {
     try {
       const { amount, currency } = req.body;
       const clientSecret = await createStripePaymentIntent(amount, currency);
+ですよね
       res.json({ clientSecret });
     } catch (error) {
       console.error("Error creating Stripe payment intent:", error);
