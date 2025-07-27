@@ -1,3 +1,4 @@
+// googleAuth.ts
 /// <reference types="../types/passport-google-oauth20" />
 import passport from "passport";
 import {
@@ -15,7 +16,6 @@ import jwt from "jsonwebtoken";
 import util from "util";
 
 export function setupGoogleAuth(app: Express) {
-  // Validate environment variables
   if (!process.env.SESSION_SECRET) {
     throw new Error("SESSION_SECRET is required");
   }
@@ -26,10 +26,9 @@ export function setupGoogleAuth(app: Express) {
     throw new Error("REDIS_URL is required in production");
   }
 
-  app.set("trust proxy", 1); // Needed for proxies like Render/Vercel
+  app.set("trust proxy", 1);
 
-  // Redis setup
-  let redisClient: any; // Temporary any type to avoid TS errors
+  let redisClient: any;
   let sessionStore;
   if (process.env.REDIS_URL && process.env.NODE_ENV === "production") {
     redisClient = createClient({
@@ -56,17 +55,14 @@ export function setupGoogleAuth(app: Express) {
       console.error("❌ Redis connection failed:", err.message);
     });
 
-    // Promisify Redis methods for async/await
     redisClient.getAsync = util.promisify(redisClient.get).bind(redisClient);
     redisClient.setExAsync = util.promisify(redisClient.setEx).bind(redisClient);
     redisClient.delAsync = util.promisify(redisClient.del).bind(redisClient);
 
     sessionStore = new RedisStore({
       client: redisClient,
-      // Removed invalid 'ttl' option; session TTL is set via cookie.maxAge
     });
 
-    // Periodic cleanup of stale sessions
     async function cleanupStaleSessions() {
       const sessions = await redisClient.keys("sess:*");
       for (const sessionKey of sessions) {
@@ -81,10 +77,9 @@ export function setupGoogleAuth(app: Express) {
         }
       }
     }
-    setInterval(cleanupStaleSessions, 24 * 60 * 60 * 1000); // Run daily
+    setInterval(cleanupStaleSessions, 24 * 60 * 60 * 1000);
   }
 
-  // Session middleware
   app.use(
     session({
       secret: process.env.SESSION_SECRET,
@@ -94,21 +89,18 @@ export function setupGoogleAuth(app: Express) {
       cookie: {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        maxAge: 7 * 24 * 60 * 60 * 1000,
         sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-        // Removed invalid 'name' option; use 'name' at the session level
       },
-      name: "session", // Moved name to session options
+      name: "session",
     })
   );
 
-  // Log session creation
   app.use((req, res, next) => {
     console.log("🔐 Session accessed:", req.sessionID);
     next();
   });
 
-  // CSRF protection
   app.use(csurf());
   app.use((req, res, next) => {
     res.locals.csrfToken = req.csrfToken();
@@ -118,7 +110,6 @@ export function setupGoogleAuth(app: Express) {
   app.use(passport.initialize());
   app.use(passport.session());
 
-  // Google OAuth Strategy
   const callbackURL =
     process.env.NODE_ENV === "production"
       ? "https://myshop-test-backend.onrender.com/auth/google/callback"
@@ -158,13 +149,11 @@ export function setupGoogleAuth(app: Express) {
     )
   );
 
-  // Serialize minimal user data
   passport.serializeUser((user: any, done) => {
     console.log("🔐 Serializing user:", user.id);
     done(null, { id: user.id, email: user.email, isAdmin: user.isAdmin });
   });
 
-  // Deserialize with Redis caching
   passport.deserializeUser(async (user: any, done) => {
     try {
       const cacheKey = `user:${user.id}`;
@@ -173,9 +162,9 @@ export function setupGoogleAuth(app: Express) {
         dbUser = await storage.getUser(user.id);
         if (!dbUser) {
           console.warn("❌ User not found in DB:", user.id);
-          return done(null, null); // Clear session if user not found
+          return done(null, null);
         }
-        await redisClient?.setExAsync?.(cacheKey, 3600, JSON.stringify(dbUser)); // Cache for 1 hour
+        await redisClient?.setExAsync?.(cacheKey, 3600, JSON.stringify(dbUser));
         console.log("✅ Cached user in Redis:", user.id);
       } else {
         dbUser = JSON.parse(dbUser);
@@ -187,7 +176,6 @@ export function setupGoogleAuth(app: Express) {
     }
   });
 
-  // JWT Middleware
   app.use((req, res, next) => {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith("Bearer ")) {
@@ -202,7 +190,6 @@ export function setupGoogleAuth(app: Express) {
     next();
   });
 
-  // Auth routes
   app.get(
     "/auth/google",
     passport.authenticate("google", {
@@ -241,9 +228,12 @@ export function setupGoogleAuth(app: Express) {
             });
           }
 
+          const csrfToken = req.csrfToken();
+          console.log("🔐 New CSRF token:", csrfToken);
+
           console.log("🔐 Setting session cookie:", res.getHeader("Set-Cookie"));
           res.redirect(
-            `https://test-front-mocha.vercel.app/?login=success&token=${encodeURIComponent(token)}`
+            `https://test-front-mocha.vercel.app/?login=success&token=${encodeURIComponent(token)}&csrfToken=${encodeURIComponent(csrfToken)}`
           );
         } catch (error) {
           console.error("❌ Auth callback error:", error);
@@ -265,12 +255,10 @@ export function setupGoogleAuth(app: Express) {
     });
   });
 
-  // CSRF token endpoint
   app.get("/api/csrf-token", (req: Request, res: Response) => {
     res.json({ csrfToken: req.csrfToken() });
   });
 
-  // Auth user endpoint
   app.get("/api/auth/user", (req: Request, res: Response) => {
     console.log("🔍 Auth check - Is Authenticated:", req.isAuthenticated());
     console.log("🔍 Auth check - User:", req.user);
@@ -280,14 +268,12 @@ export function setupGoogleAuth(app: Express) {
     if (req.isAuthenticated() && req.user) {
       res.json(req.user);
     } else if (req.user) {
-      // JWT-based authentication
       res.json(req.user);
     } else {
       res.status(401).json({ message: "Not authenticated" });
     }
   });
 
-  // Debug endpoint
   app.get("/api/auth/debug", (req: Request, res: Response) => {
     res.json({
       isAuthenticated: req.isAuthenticated(),
