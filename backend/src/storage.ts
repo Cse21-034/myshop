@@ -211,9 +211,13 @@ export class DatabaseStorage implements IStorage {
     }
     if (item.size) {
       conditions.push(eq(cartItems.size, item.size));
+    } else {
+      conditions.push(sql`${cartItems.size} IS NULL`);
     }
     if (item.color) {
       conditions.push(eq(cartItems.color, item.color));
+    } else {
+      conditions.push(sql`${cartItems.color} IS NULL`);
     }
 
     const existingItem = await db.select().from(cartItems).where(and(...conditions));
@@ -288,17 +292,16 @@ export class DatabaseStorage implements IStorage {
             .where(eq(cartItems.id, item.id));
         } else {
           // If item exists in user cart, update quantity
+          const conditions = [
+            eq(cartItems.userId, userId),
+            eq(cartItems.productId, item.productId),
+            item.size ? eq(cartItems.size, item.size) : sql`${cartItems.size} IS NULL`,
+            item.color ? eq(cartItems.color, item.color) : sql`${cartItems.color} IS NULL`,
+          ];
           const existingItem = await db
             .select()
             .from(cartItems)
-            .where(
-              and(
-                eq(cartItems.userId, userId),
-                eq(cartItems.productId, item.productId),
-                item.size ? eq(cartItems.size, item.size) : sql`cart_items.size IS NULL`,
-                item.color ? eq(cartItems.color, item.color) : sql`cart_items.color IS NULL`
-              )
-            );
+            .where(and(...conditions));
           if (existingItem.length > 0) {
             await db
               .update(cartItems)
