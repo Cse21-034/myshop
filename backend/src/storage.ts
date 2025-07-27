@@ -1,3 +1,4 @@
+// server/src/storage.ts
 import {
   users,
   categories,
@@ -22,7 +23,7 @@ import {
   type InsertContactMessage,
 } from "./schema";
 import { db } from "./db";
-import { eq, desc, and, like, gte, lte } from "drizzle-orm";
+import { eq, desc, and, like, gte, lte, sql } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -256,20 +257,75 @@ export class DatabaseStorage implements IStorage {
   }
 
   async mergeCart(sessionId: string, userId: string): Promise<void> {
-    const guestCart = await this.getCartItems(undefined, sessionId);
-    for (const item of guestCart) {
-      await this.addToCart({ ...item, userId, sessionId: undefined });
+    try {
+      // Check for existing cart items for the user to avoid duplicates
+      const userCartItems = await db
+        .select({
+          productId: cartItems.productId,
+          size: cartItems.size,
+          color: cartItems.color,
+        })
+        .from(cartItems)
+        .where(eq(cartItems.userId, userId));
+
+      const userCartSet = new Set(
+        userCartItems.map((item) => `${item.productId}-${item.size || ''}-${item.color || ''}`)
+      );
+
+      // Fetch guest cart items
+      const guestCartItems = await db
+        .select()
+        .from(cartItems)
+        .where(eq(cartItems.sessionId, sessionId));
+
+      for (const item of guestCartItems) {
+        const itemKey = `${item.productId}-${item.size || ''}-${item.color || ''}`;
+        if (!userCartSet.has(itemKey)) {
+          // Update guest cart item to user ID
+          await db
+            .update(cartItems)
+            .set({ userId, sessionId: null })
+            .where(eq(cartItems.id, item.id));
+        } else {
+          // If item exists in user cart, update quantity
+          const existingItem = await db
+            .select()
+            .from(cartItems)
+            .where(
+              and(
+                eq(cartItems.userId, userId),
+                eq(cartItems.productId, item.productId),
+                item.size ? eq(cartItems.size, item.size) : sql`cart_items.size IS NULL`,
+                item.color ? eq(cartItems.color, item.color) : sql`cart_items.color IS NULL`
+              )
+            );
+          if (existingItem.length > 0) {
+            await db
+              .update(cartItems)
+              .set({ quantity: existingItem[0].quantity + item.quantity })
+              .where(eq(cartItems.id, existingItem[0].id));
+            await db.delete(cartItems).where(eq(cartItems.id, item.id));
+          }
+        }
+      }
+
+      console.log(`✅ Merged ${guestCartItems.length} cart items from session ${sessionId} to user ${userId}`);
+    } catch (error) {
+      console.error("❌ Failed to merge cart:", error);
+      throw error;
     }
-    await this.clearCart(undefined, sessionId);
   }
 
   async createOrder(order: InsertOrder, items: InsertOrderItem[]): Promise<Order> {
-    const [newOrder] = await db.insert(orders).values({
-      ...order,
-      paymentIntentId: order.paymentIntentId,
-      paypalOrderId: order.paypalOrderId,
-      orangeMoneyTransactionId: order.orangeMoneyTransactionId,
-    }).returning();
+    const [newOrder] = await db
+      .insert(orders)
+      .values({
+        ...order,
+        paymentIntentId: order.paymentIntentId,
+        paypalOrderId: order.paypalOrderId,
+        orangeMoneyTransactionId: order.orangeMoneyTransactionId,
+      })
+      .returning();
     const orderItemsWithOrderId = items.map((item) => ({ ...item, orderId: newOrder.id }));
     await db.insert(orderItems).values(orderItemsWithOrderId);
     return newOrder;
