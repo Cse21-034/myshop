@@ -1,4 +1,4 @@
-// googleAuth.ts
+// server/src/googleAuth.ts
 /// <reference types="../types/passport-google-oauth20" />
 import passport from "passport";
 import {
@@ -91,6 +91,7 @@ export function setupGoogleAuth(app: Express) {
         secure: process.env.NODE_ENV === "production",
         maxAge: 7 * 24 * 60 * 60 * 1000,
         sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+        domain: process.env.NODE_ENV === "production" ? ".vercel.app" : undefined,
       },
       name: "session",
     })
@@ -98,6 +99,12 @@ export function setupGoogleAuth(app: Express) {
 
   app.use((req, res, next) => {
     console.log("🔐 Session accessed:", req.sessionID);
+    res.cookie("session", req.sessionID, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
     next();
   });
 
@@ -207,7 +214,7 @@ export function setupGoogleAuth(app: Express) {
       console.log("🔐 Session ID:", req.sessionID);
       console.log("🔐 Is Authenticated:", req.isAuthenticated());
 
-      req.session.regenerate((err) => {
+      req.session.regenerate(async (err) => {
         if (err) {
           console.error("❌ Session regeneration failed:", err);
           return res.redirect("https://test-front-mocha.vercel.app/?login=error");
@@ -218,22 +225,36 @@ export function setupGoogleAuth(app: Express) {
           const user = req.user as any;
           const userId = user.id;
           const sessionId = req.sessionID;
+          const oldSessionId = req.query.state as string | undefined;
+
           const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET!, {
             expiresIn: "1h",
           });
+          const refreshToken = jwt.sign({ id: user.id }, process.env.JWT_SECRET!, {
+            expiresIn: "7d",
+          });
 
-          if (storage.mergeCart) {
-            storage.mergeCart(sessionId, userId).catch((error) => {
-              console.error("❌ Cart merge failed:", error);
-            });
+          await redisClient.setExAsync(`refresh:${user.id}`, 7 * 24 * 60 * 60, refreshToken);
+          console.log("✅ Stored refresh token for user:", user.id);
+
+          if (oldSessionId && storage.mergeCart) {
+            await storage.mergeCart(oldSessionId, userId);
+            console.log(`✅ Merged cart from session ${oldSessionId} to user ${userId}`);
           }
 
           const csrfToken = req.csrfToken();
           console.log("🔐 New CSRF token:", csrfToken);
 
+          res.cookie("session", req.sessionID, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+          });
+
           console.log("🔐 Setting session cookie:", res.getHeader("Set-Cookie"));
           res.redirect(
-            `https://test-front-mocha.vercel.app/?login=success&token=${encodeURIComponent(token)}&csrfToken=${encodeURIComponent(csrfToken)}`
+            `https://test-front-mocha.vercel.app/?login=success&token=${encodeURIComponent(token)}&refreshToken=${encodeURIComponent(refreshToken)}&csrfToken=${encodeURIComponent(csrfToken)}`
           );
         } catch (error) {
           console.error("❌ Auth callback error:", error);
@@ -249,7 +270,8 @@ export function setupGoogleAuth(app: Express) {
       if (err) {
         console.error("❌ Logout error:", err);
       }
-      req.session.destroy(() => {
+      req.session.destroy(async () => {
+        await redisClient.delAsync(`refresh:${(req.user as any)?.id}`);
         res.redirect("https://test-front-mocha.vercel.app/?logout=success");
       });
     });
@@ -284,6 +306,34 @@ export function setupGoogleAuth(app: Express) {
       userAgent: req.headers["user-agent"],
       sessionData: req.session,
     });
+  });
+
+  app.post("/api/auth/refresh", async (req: Request, res: Response) => {
+    try {
+      const { refreshToken } = req.body;
+      if (!refreshToken) {
+        return res.status(400).json({ message: "Refresh token required" });
+      }
+
+      const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET!) as any;
+      const storedRefreshToken = await redisClient.getAsync(`refresh:${decoded.id}`);
+      if (storedRefreshToken !== refreshToken) {
+        return res.status(401).json({ message: "Invalid refresh token" });
+      }
+
+      const user = await storage.getUser(decoded.id);
+      if (!user) {
+        return res.status(401).json({ message: "User not found" });
+      }
+
+      const newToken = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET!, {
+        expiresIn: "1h",
+      });
+      res.json({ token: newToken });
+    } catch (error) {
+      console.error("❌ Refresh token error:", error);
+      res.status(401).json({ message: "Invalid or expired refresh token" });
+    }
   });
 }
 
