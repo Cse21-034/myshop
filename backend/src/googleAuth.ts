@@ -14,6 +14,17 @@ import { createClient } from "redis";
 import jwt from "jsonwebtoken";
 import util from "util";
 
+// Extend express-session types to include user property
+declare module "express-session" {
+  interface SessionData {
+    user?: {
+      id: string;
+      email: string;
+      isAdmin: boolean;
+    };
+  }
+}
+
 export function setupGoogleAuth(app: Express) {
   if (!process.env.SESSION_SECRET) {
     throw new Error("SESSION_SECRET is required");
