@@ -91,7 +91,7 @@ export function setupGoogleAuth(app: Express) {
         secure: process.env.NODE_ENV === "production",
         maxAge: 7 * 24 * 60 * 60 * 1000,
         sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-        domain: process.env.NODE_ENV === "production" ? ".vercel.app" : undefined,
+        domain: process.env.NODE_ENV === "production" ? "test-front-mocha.vercel.app" : undefined,
       },
       name: "session",
     })
@@ -204,66 +204,67 @@ export function setupGoogleAuth(app: Express) {
     })
   );
 
-  app.get(
-    "/auth/google/callback",
-    passport.authenticate("google", {
-      failureRedirect: "https://test-front-mocha.vercel.app/?login=failed",
-    }),
-    async (req, res) => {
-      console.log("🔐 Auth callback - User:", req.user);
-      console.log("🔐 Session ID:", req.sessionID);
-      console.log("🔐 Is Authenticated:", req.isAuthenticated());
 
-      req.session.regenerate(async (err) => {
-        if (err) {
-          console.error("❌ Session regeneration failed:", err);
-          return res.redirect("https://test-front-mocha.vercel.app/?login=error");
-        }
-        console.log("✅ Session regenerated with ID:", req.sessionID);
+  
+ app.get(
+  "/auth/google/callback",
+  passport.authenticate("google", {
+    failureRedirect: "https://test-front-mocha.vercel.app/?login=failed",
+  }),
+  async (req, res) => {
+    console.log("🔐 Auth callback - User:", req.user);
+    console.log("🔐 Session ID:", req.sessionID);
+    console.log("🔐 Is Authenticated:", req.isAuthenticated());
 
-        try {
-          const user = req.user as any;
-          const userId = user.id;
-          const sessionId = req.sessionID;
-          const oldSessionId = req.query.state as string | undefined;
+    try {
+      const user = req.user as any;
+      const userId = user.id;
+      const sessionId = req.sessionID;
+      const oldSessionId = req.query.state as string | undefined;
 
-          const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET!, {
-            expiresIn: "1h",
-          });
-          const refreshToken = jwt.sign({ id: user.id }, process.env.JWT_SECRET!, {
-            expiresIn: "7d",
-          });
+      // Store user in session
+      req.session.user = { id: user.id, email: user.email, isAdmin: user.isAdmin };
 
-          await redisClient.setExAsync(`refresh:${user.id}`, 7 * 24 * 60 * 60, refreshToken);
-          console.log("✅ Stored refresh token for user:", user.id);
-
-          if (oldSessionId && storage.mergeCart) {
-            await storage.mergeCart(oldSessionId, userId);
-            console.log(`✅ Merged cart from session ${oldSessionId} to user ${userId}`);
-          }
-
-          const csrfToken = req.csrfToken();
-          console.log("🔐 New CSRF token:", csrfToken);
-
-          res.cookie("session", req.sessionID, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-            maxAge: 7 * 24 * 60 * 60 * 1000,
-          });
-
-          console.log("🔐 Setting session cookie:", res.getHeader("Set-Cookie"));
-          res.redirect(
-            `https://test-front-mocha.vercel.app/?login=success&token=${encodeURIComponent(token)}&refreshToken=${encodeURIComponent(refreshToken)}&csrfToken=${encodeURIComponent(csrfToken)}`
-          );
-        } catch (error) {
-          console.error("❌ Auth callback error:", error);
-          res.redirect("https://test-front-mocha.vercel.app/?login=error");
-        }
+      const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET!, {
+        expiresIn: "1h",
       });
-    }
-  );
+      const refreshToken = jwt.sign({ id: user.id }, process.env.JWT_SECRET!, {
+        expiresIn: "7d",
+      });
 
+      await redisClient.setExAsync(`refresh:${user.id}`, 7 * 24 * 60 * 60, refreshToken);
+      console.log("✅ Stored refresh token for user:", user.id);
+
+      if (oldSessionId && storage.mergeCart) {
+        await storage.mergeCart(oldSessionId, userId);
+        console.log(`✅ Merged cart from session ${oldSessionId} to user ${userId}`);
+      }
+
+      const csrfToken = req.csrfToken();
+      console.log("🔐 New CSRF token:", csrfToken);
+
+      res.cookie("session", req.sessionID, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        domain: process.env.NODE_ENV === "production" ? "test-front-mocha.vercel.app" : undefined,
+      });
+
+      console.log("🔐 Setting session cookie:", res.getHeader("Set-Cookie"));
+      res.redirect(
+        `https://test-front-mocha.vercel.app/?login=success&token=${encodeURIComponent(token)}&refreshToken=${encodeURIComponent(refreshToken)}&csrfToken=${encodeURIComponent(csrfToken)}`
+      );
+    } catch (error) {
+      console.error("❌ Auth callback error:", error);
+      res.redirect("https://test-front-mocha.vercel.app/?login=error");
+    }
+  }
+);
+
+
+
+  
   app.get("/auth/logout", (req: Request, res: Response) => {
     console.log("🔐 Logging out user:", req.user);
     req.logout((err) => {
