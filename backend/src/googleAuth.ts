@@ -183,6 +183,7 @@ export function setupGoogleAuth(app: Express) {
     }
   });
 
+  // Improved JWT handling middleware
   app.use((req, res, next) => {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith("Bearer ")) {
@@ -190,9 +191,16 @@ export function setupGoogleAuth(app: Express) {
         const token = authHeader.substring(7);
         const decoded = jwt.verify(token, process.env.JWT_SECRET!);
         req.user = decoded;
-      } catch (err) {
-        console.error("❌ JWT verification failed:", err);
+        console.log("✅ JWT verified, user set:", decoded);
+      } catch (err: any) {
+        console.error("❌ JWT verification failed:", err.message);
+        // Optionally clear invalid token
+        if (err.name === "TokenExpiredError") {
+          console.warn("Token expired, client should refresh");
+        }
       }
+    } else {
+      console.log("🔍 No JWT token provided in Authorization header");
     }
     next();
   });
@@ -204,67 +212,62 @@ export function setupGoogleAuth(app: Express) {
     })
   );
 
+  app.get(
+    "/auth/google/callback",
+    passport.authenticate("google", {
+      failureRedirect: "https://test-front-mocha.vercel.app/?login=failed",
+    }),
+    async (req, res) => {
+      console.log("🔐 Auth callback - User:", req.user);
+      console.log("🔐 Session ID:", req.sessionID);
+      console.log("🔐 Is Authenticated:", req.isAuthenticated());
 
-  
- app.get(
-  "/auth/google/callback",
-  passport.authenticate("google", {
-    failureRedirect: "https://test-front-mocha.vercel.app/?login=failed",
-  }),
-  async (req, res) => {
-    console.log("🔐 Auth callback - User:", req.user);
-    console.log("🔐 Session ID:", req.sessionID);
-    console.log("🔐 Is Authenticated:", req.isAuthenticated());
+      try {
+        const user = req.user as any;
+        const userId = user.id;
+        const sessionId = req.sessionID;
+        const oldSessionId = req.query.state as string | undefined;
 
-    try {
-      const user = req.user as any;
-      const userId = user.id;
-      const sessionId = req.sessionID;
-      const oldSessionId = req.query.state as string | undefined;
+        // Store user in session - ADDED
+        req.session.user = { id: user.id, email: user.email, isAdmin: user.isAdmin };
 
-      // Store user in session
-      req.session.user = { id: user.id, email: user.email, isAdmin: user.isAdmin };
+        const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET!, {
+          expiresIn: "1h",
+        });
+        const refreshToken = jwt.sign({ id: user.id }, process.env.JWT_SECRET!, {
+          expiresIn: "7d",
+        });
 
-      const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET!, {
-        expiresIn: "1h",
-      });
-      const refreshToken = jwt.sign({ id: user.id }, process.env.JWT_SECRET!, {
-        expiresIn: "7d",
-      });
+        await redisClient.setExAsync(`refresh:${user.id}`, 7 * 24 * 60 * 60, refreshToken);
+        console.log("✅ Stored refresh token for user:", user.id);
 
-      await redisClient.setExAsync(`refresh:${user.id}`, 7 * 24 * 60 * 60, refreshToken);
-      console.log("✅ Stored refresh token for user:", user.id);
+        if (oldSessionId && storage.mergeCart) {
+          await storage.mergeCart(oldSessionId, userId);
+          console.log(`✅ Merged cart from session ${oldSessionId} to user ${userId}`);
+        }
 
-      if (oldSessionId && storage.mergeCart) {
-        await storage.mergeCart(oldSessionId, userId);
-        console.log(`✅ Merged cart from session ${oldSessionId} to user ${userId}`);
+        const csrfToken = req.csrfToken();
+        console.log("🔐 New CSRF token:", csrfToken);
+
+        res.cookie("session", req.sessionID, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+          maxAge: 7 * 24 * 60 * 60 * 1000,
+          domain: process.env.NODE_ENV === "production" ? "test-front-mocha.vercel.app" : undefined,
+        });
+
+        console.log("🔐 Setting session cookie:", res.getHeader("Set-Cookie"));
+        res.redirect(
+          `https://test-front-mocha.vercel.app/?login=success&token=${encodeURIComponent(token)}&refreshToken=${encodeURIComponent(refreshToken)}&csrfToken=${encodeURIComponent(csrfToken)}`
+        );
+      } catch (error) {
+        console.error("❌ Auth callback error:", error);
+        res.redirect("https://test-front-mocha.vercel.app/?login=error");
       }
-
-      const csrfToken = req.csrfToken();
-      console.log("🔐 New CSRF token:", csrfToken);
-
-      res.cookie("session", req.sessionID, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-        domain: process.env.NODE_ENV === "production" ? "test-front-mocha.vercel.app" : undefined,
-      });
-
-      console.log("🔐 Setting session cookie:", res.getHeader("Set-Cookie"));
-      res.redirect(
-        `https://test-front-mocha.vercel.app/?login=success&token=${encodeURIComponent(token)}&refreshToken=${encodeURIComponent(refreshToken)}&csrfToken=${encodeURIComponent(csrfToken)}`
-      );
-    } catch (error) {
-      console.error("❌ Auth callback error:", error);
-      res.redirect("https://test-front-mocha.vercel.app/?login=error");
     }
-  }
-);
+  );
 
-
-
-  
   app.get("/auth/logout", (req: Request, res: Response) => {
     console.log("🔐 Logging out user:", req.user);
     req.logout((err) => {
@@ -282,14 +285,18 @@ export function setupGoogleAuth(app: Express) {
     res.json({ csrfToken: req.csrfToken() });
   });
 
+  // Updated /api/auth/user endpoint with session.user fallback
   app.get("/api/auth/user", (req: Request, res: Response) => {
     console.log("🔍 Auth check - Is Authenticated:", req.isAuthenticated());
     console.log("🔍 Auth check - User:", req.user);
+    console.log("🔍 Auth check - Session User:", req.session.user);
     console.log("🔍 Auth check - Session ID:", req.sessionID);
     console.log("🔍 Auth check - Cookies:", req.headers.cookie || "No cookies");
 
     if (req.isAuthenticated() && req.user) {
       res.json(req.user);
+    } else if (req.session.user) {
+      res.json(req.session.user);
     } else if (req.user) {
       res.json(req.user);
     } else {
