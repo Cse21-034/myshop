@@ -1,4 +1,3 @@
-// server/src/googleAuth.ts
 /// <reference types="../types/passport-google-oauth20" />
 import passport from "passport";
 import {
@@ -104,6 +103,7 @@ export function setupGoogleAuth(app: Express) {
       secure: process.env.NODE_ENV === "production",
       sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       maxAge: 7 * 24 * 60 * 60 * 1000,
+      domain: process.env.NODE_ENV === "production" ? "test-front-mocha.vercel.app" : undefined,
     });
     next();
   });
@@ -175,6 +175,7 @@ export function setupGoogleAuth(app: Express) {
         console.log("✅ Cached user in Redis:", user.id);
       } else {
         dbUser = JSON.parse(dbUser);
+        console.log("✅ Retrieved user from Redis cache:", user.id);
       }
       done(null, dbUser);
     } catch (err: unknown) {
@@ -194,7 +195,6 @@ export function setupGoogleAuth(app: Express) {
         console.log("✅ JWT verified, user set:", decoded);
       } catch (err: any) {
         console.error("❌ JWT verification failed:", err.message);
-        // Optionally clear invalid token
         if (err.name === "TokenExpiredError") {
           console.warn("Token expired, client should refresh");
         }
@@ -228,8 +228,16 @@ export function setupGoogleAuth(app: Express) {
         const sessionId = req.sessionID;
         const oldSessionId = req.query.state as string | undefined;
 
-        // Store user in session - ADDED
+        // Store user in session
         req.session.user = { id: user.id, email: user.email, isAdmin: user.isAdmin };
+        console.log("🔐 Storing user in session:", req.session.user);
+        req.session.save((err) => {
+          if (err) {
+            console.error("❌ Failed to save session to Redis:", err);
+          } else {
+            console.log("✅ Session saved to Redis");
+          }
+        });
 
         const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET!, {
           expiresIn: "1h",
@@ -258,6 +266,7 @@ export function setupGoogleAuth(app: Express) {
         });
 
         console.log("🔐 Setting session cookie:", res.getHeader("Set-Cookie"));
+        console.log("🔐 Session contents after login:", req.session);
         res.redirect(
           `https://test-front-mocha.vercel.app/?login=success&token=${encodeURIComponent(token)}&refreshToken=${encodeURIComponent(refreshToken)}&csrfToken=${encodeURIComponent(csrfToken)}`
         );
@@ -285,7 +294,6 @@ export function setupGoogleAuth(app: Express) {
     res.json({ csrfToken: req.csrfToken() });
   });
 
-  // Updated /api/auth/user endpoint with session.user fallback
   app.get("/api/auth/user", (req: Request, res: Response) => {
     console.log("🔍 Auth check - Is Authenticated:", req.isAuthenticated());
     console.log("🔍 Auth check - User:", req.user);
@@ -322,9 +330,10 @@ export function setupGoogleAuth(app: Express) {
       if (!refreshToken) {
         return res.status(400).json({ message: "Refresh token required" });
       }
-
+      console.log("🔄 Verifying refresh token:", refreshToken);
       const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET!) as any;
       const storedRefreshToken = await redisClient.getAsync(`refresh:${decoded.id}`);
+      console.log("🔄 Stored refresh token in Redis:", storedRefreshToken);
       if (storedRefreshToken !== refreshToken) {
         return res.status(401).json({ message: "Invalid refresh token" });
       }
