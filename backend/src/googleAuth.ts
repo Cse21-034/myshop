@@ -206,13 +206,13 @@ export function setupGoogleAuth(app: Express) {
     next();
   });
 
-  app.get(
-    "/auth/google",
+  app.get("/auth/google", (req: Request, res: Response, next: Function) => {
+    const sessionId = req.query.sessionId as string || "";
     passport.authenticate("google", {
       scope: ["profile", "email"],
-      state: (req: Request) => req.query.sessionId as string || "",
-    })
-  );
+      state: sessionId,
+    })(req, res, next);
+  });
 
   app.get(
     "/auth/google/callback",
