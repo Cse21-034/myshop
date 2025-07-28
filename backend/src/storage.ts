@@ -199,6 +199,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async addToCart(item: InsertCartItem): Promise<CartItem> {
+    console.log(`🔍 Adding to cart:`, item);
     const conditions = [];
     if (item.productId) {
       conditions.push(eq(cartItems.productId, item.productId));
@@ -221,16 +222,19 @@ export class DatabaseStorage implements IStorage {
     }
 
     const existingItem = await db.select().from(cartItems).where(and(...conditions));
+    console.log(`🔍 Existing cart item:`, existingItem);
     if (existingItem.length > 0) {
       const [updatedItem] = await db
         .update(cartItems)
         .set({ quantity: existingItem[0].quantity + item.quantity })
         .where(eq(cartItems.id, existingItem[0].id))
         .returning();
+      console.log(`🔍 Updated cart item:`, updatedItem);
       return updatedItem;
     }
 
     const [newItem] = await db.insert(cartItems).values(item).returning();
+    console.log(`🔍 Created new cart item:`, newItem);
     return newItem;
   }
 
@@ -262,6 +266,7 @@ export class DatabaseStorage implements IStorage {
 
   async mergeCart(sessionId: string, userId: string): Promise<void> {
     try {
+      console.log(`🔍 Attempting to merge cart: sessionId=${sessionId}, userId=${userId}`);
       // Check for existing cart items for the user to avoid duplicates
       const userCartItems = await db
         .select({
@@ -271,6 +276,7 @@ export class DatabaseStorage implements IStorage {
         })
         .from(cartItems)
         .where(eq(cartItems.userId, userId));
+      console.log(`🔍 User cart items:`, userCartItems);
 
       const userCartSet = new Set(
         userCartItems.map((item) => `${item.productId}-${item.size || ''}-${item.color || ''}`)
@@ -281,18 +287,21 @@ export class DatabaseStorage implements IStorage {
         .select()
         .from(cartItems)
         .where(and(eq(cartItems.sessionId, sessionId), sql`${cartItems.productId} IS NOT NULL`));
+      console.log(`🔍 Guest cart items:`, guestCartItems);
 
       for (const item of guestCartItems) {
         if (!item.productId) continue; // Skip items with null productId
         const itemKey = `${item.productId}-${item.size || ''}-${item.color || ''}`;
         if (!userCartSet.has(itemKey)) {
           // Update guest cart item to user ID
+          console.log(`🔍 Transferring guest item ${item.id} to user ${userId}`);
           await db
             .update(cartItems)
             .set({ userId, sessionId: null })
             .where(eq(cartItems.id, item.id));
         } else {
           // If item exists in user cart, update quantity
+          console.log(`🔍 Merging quantities for item ${item.id} with existing user item`);
           const conditions = [
             eq(cartItems.userId, userId),
             eq(cartItems.productId, item.productId),
@@ -309,6 +318,7 @@ export class DatabaseStorage implements IStorage {
               .set({ quantity: existingItem[0].quantity + item.quantity })
               .where(eq(cartItems.id, existingItem[0].id));
             await db.delete(cartItems).where(eq(cartItems.id, item.id));
+            console.log(`🔍 Merged item ${item.id} with user item ${existingItem[0].id}`);
           }
         }
       }
