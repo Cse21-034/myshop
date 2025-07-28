@@ -12,7 +12,6 @@ import { storage } from "./storage";
 import RedisStore from "connect-redis";
 import { createClient } from "redis";
 import jwt from "jsonwebtoken";
-import util from "util";
 
 // Extend express-session types to include user property
 declare module "express-session" {
@@ -65,10 +64,6 @@ export function setupGoogleAuth(app: Express) {
       console.error("❌ Redis connection failed:", err.message);
     });
 
-    redisClient.getAsync = util.promisify(redisClient.get).bind(redisClient);
-    redisClient.setExAsync = util.promisify(redisClient.setEx).bind(redisClient);
-    redisClient.delAsync = util.promisify(redisClient.del).bind(redisClient);
-
     sessionStore = new RedisStore({
       client: redisClient,
     });
@@ -76,12 +71,12 @@ export function setupGoogleAuth(app: Express) {
     async function cleanupStaleSessions() {
       const sessions = await redisClient.keys("sess:*");
       for (const sessionKey of sessions) {
-        const sessionData = await redisClient.getAsync(sessionKey);
+        const sessionData = await redisClient.get(sessionKey);
         if (sessionData) {
           const session = JSON.parse(sessionData);
           const expiry = session.cookie?.expires;
           if (expiry && new Date(expiry) < new Date()) {
-            await redisClient.delAsync(sessionKey);
+            await redisClient.del(sessionKey);
             console.log(`🧹 Cleaned up stale session: ${sessionKey}`);
           }
         }
@@ -101,21 +96,17 @@ export function setupGoogleAuth(app: Express) {
         secure: process.env.NODE_ENV === "production",
         maxAge: 7 * 24 * 60 * 60 * 1000,
         sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-        domain: process.env.NODE_ENV === "production" ? "test-front-mocha.vercel.app" : undefined,
+        domain: process.env.NODE_ENV === "production" ? ".onrender.com" : undefined,
       },
       name: "session",
     })
   );
 
   app.use((req, res, next) => {
-    console.log("🔐 Session accessed:", req.sessionID);
-    res.cookie("session", req.sessionID, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      domain: process.env.NODE_ENV === "production" ? "test-front-mocha.vercel.app" : undefined,
-    });
+    console.log("🔐 Session accessed:", req.sessionID, "Cookies:", req.headers.cookie || "No cookies");
+    if (!req.sessionID) {
+      console.warn("⚠️ No session ID generated");
+    }
     next();
   });
 
@@ -175,14 +166,14 @@ export function setupGoogleAuth(app: Express) {
   passport.deserializeUser(async (user: any, done) => {
     try {
       const cacheKey = `user:${user.id}`;
-      let dbUser = await redisClient?.getAsync?.(cacheKey);
+      let dbUser = await redisClient?.get?.(cacheKey);
       if (!dbUser) {
         dbUser = await storage.getUser(user.id);
         if (!dbUser) {
           console.warn("❌ User not found in DB:", user.id);
           return done(null, null);
         }
-        await redisClient?.setExAsync?.(cacheKey, 3600, JSON.stringify(dbUser));
+        await redisClient?.setEx?.(cacheKey, 3600, JSON.stringify(dbUser));
         console.log("✅ Cached user in Redis:", user.id);
       } else {
         dbUser = JSON.parse(dbUser);
@@ -195,7 +186,6 @@ export function setupGoogleAuth(app: Express) {
     }
   });
 
-  // Improved JWT handling middleware
   app.use((req, res, next) => {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith("Bearer ")) {
@@ -220,6 +210,7 @@ export function setupGoogleAuth(app: Express) {
     "/auth/google",
     passport.authenticate("google", {
       scope: ["profile", "email"],
+      state: (req: Request) => req.query.sessionId as string || "",
     })
   );
 
@@ -239,7 +230,6 @@ export function setupGoogleAuth(app: Express) {
         const sessionId = req.sessionID;
         const oldSessionId = req.query.state as string | undefined;
 
-        // Store user in session
         req.session.user = { id: user.id, email: user.email, isAdmin: user.isAdmin };
         console.log("🔐 Storing user in session:", req.session.user);
         req.session.save((err) => {
@@ -257,7 +247,7 @@ export function setupGoogleAuth(app: Express) {
           expiresIn: "7d",
         });
 
-        await redisClient.setExAsync(`refresh:${user.id}`, 7 * 24 * 60 * 60, refreshToken);
+        await redisClient.setEx(`refresh:${user.id}`, 7 * 24 * 60 * 60, refreshToken);
         console.log("✅ Stored refresh token for user:", user.id);
 
         if (oldSessionId && storage.mergeCart) {
@@ -268,16 +258,6 @@ export function setupGoogleAuth(app: Express) {
         const csrfToken = req.csrfToken();
         console.log("🔐 New CSRF token:", csrfToken);
 
-        res.cookie("session", req.sessionID, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-          maxAge: 7 * 24 * 60 * 60 * 1000,
-          domain: process.env.NODE_ENV === "production" ? "test-front-mocha.vercel.app" : undefined,
-        });
-
-        console.log("🔐 Setting session cookie:", res.getHeader("Set-Cookie"));
-        console.log("🔐 Session contents after login:", req.session);
         res.redirect(
           `https://test-front-mocha.vercel.app/?login=success&token=${encodeURIComponent(token)}&refreshToken=${encodeURIComponent(refreshToken)}&csrfToken=${encodeURIComponent(csrfToken)}`
         );
@@ -295,7 +275,9 @@ export function setupGoogleAuth(app: Express) {
         console.error("❌ Logout error:", err);
       }
       req.session.destroy(async () => {
-        await redisClient.delAsync(`refresh:${(req.user as any)?.id}`);
+        if (req.user) {
+          await redisClient.del(`refresh:${(req.user as any)?.id}`);
+        }
         res.redirect("https://test-front-mocha.vercel.app/?logout=success");
       });
     });
@@ -343,7 +325,7 @@ export function setupGoogleAuth(app: Express) {
       }
       console.log("🔄 Verifying refresh token:", refreshToken);
       const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET!) as any;
-      const storedRefreshToken = await redisClient.getAsync(`refresh:${decoded.id}`);
+      const storedRefreshToken = await redisClient.get(`refresh:${decoded.id}`);
       console.log("🔄 Stored refresh token in Redis:", storedRefreshToken);
       if (storedRefreshToken !== refreshToken) {
         return res.status(401).json({ message: "Invalid refresh token" });
