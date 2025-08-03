@@ -213,11 +213,10 @@ export function setupGoogleAuth(app: Express) {
       state: sessionId,
     })(req, res, next);
   });
-
   app.get(
     "/auth/google/callback",
     passport.authenticate("google", {
-      failureRedirect: "https://test-front-mocha.vercel.app/?login=failed",
+      failureRedirect: "https://fountstream.com/?login=failed",
     }),
     async (req, res) => {
       console.log("🔐 Auth callback - User:", req.user);
@@ -259,11 +258,11 @@ export function setupGoogleAuth(app: Express) {
         console.log("🔐 New CSRF token:", csrfToken);
 
         res.redirect(
-          `https://test-front-mocha.vercel.app/?login=success&token=${encodeURIComponent(token)}&refreshToken=${encodeURIComponent(refreshToken)}&csrfToken=${encodeURIComponent(csrfToken)}`
+          `https://fountstream.com/?login=success&token=${encodeURIComponent(token)}&refreshToken=${encodeURIComponent(refreshToken)}&csrfToken=${encodeURIComponent(csrfToken)}`
         );
       } catch (error) {
         console.error("❌ Auth callback error:", error);
-        res.redirect("https://test-front-mocha.vercel.app/?login=error");
+        res.redirect("https://fountstream.com/?login=error");
       }
     }
   );
@@ -278,7 +277,7 @@ export function setupGoogleAuth(app: Express) {
         if (req.user) {
           await redisClient.del(`refresh:${(req.user as any)?.id}`);
         }
-        res.redirect("https://test-front-mocha.vercel.app/?logout=success");
+        res.redirect("https://fountstream.com/?logout=success");
       });
     });
   });
