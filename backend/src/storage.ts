@@ -100,41 +100,56 @@ export class DatabaseStorage implements IStorage {
     await db.delete(categories).where(eq(categories.id, id));
   }
 
-  async getProducts(filters?: {
-    categoryId?: number;
-    search?: string;
-    minPrice?: number;
-    maxPrice?: number;
-    featured?: boolean;
-    active?: boolean;
-  }): Promise<Product[]> {
-    let query = db.select().from(products);
-    const conditions = [];
+ async getProducts(filters?: {
+  categoryId?: number;
+  search?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  featured?: boolean;
+  active?: boolean;
+}): Promise<(Product & { category: Category | null })[]> {
+  let query = db
+    .select({
+      ...products,
+      category: {
+        id: categories.id,
+        name: categories.name,
+        slug: categories.slug,
+        description: categories.description,
+        imageUrl: categories.imageUrl,
+        createdAt: categories.createdAt,
+      },
+    })
+    .from(products)
+    .leftJoin(categories, eq(products.categoryId, categories.id));
 
-    if (filters?.categoryId) {
-      conditions.push(eq(products.categoryId, filters.categoryId));
-    }
-    if (filters?.search) {
-      conditions.push(like(products.name, `%${filters.search}%`));
-    }
-    if (filters?.minPrice) {
-      conditions.push(gte(products.price, filters.minPrice.toString()));
-    }
-    if (filters?.maxPrice) {
-      conditions.push(lte(products.price, filters.maxPrice.toString()));
-    }
-    if (filters?.featured !== undefined) {
-      conditions.push(eq(products.featured, filters.featured));
-    }
-    if (filters?.active !== undefined) {
-      conditions.push(eq(products.active, filters.active));
-    }
+  const conditions = [];
 
-    if (conditions.length > 0) {
-      return await query.where(and(...conditions)).orderBy(desc(products.createdAt));
-    }
-    return await query.orderBy(desc(products.createdAt));
+  if (filters?.categoryId) {
+    conditions.push(eq(products.categoryId, filters.categoryId));
   }
+  if (filters?.search) {
+    conditions.push(like(products.name, `%${filters.search}%`));
+  }
+  if (filters?.minPrice) {
+    conditions.push(gte(products.price, filters.minPrice.toString()));
+  }
+  if (filters?.maxPrice) {
+    conditions.push(lte(products.price, filters.maxPrice.toString()));
+  }
+  if (filters?.featured !== undefined) {
+    conditions.push(eq(products.featured, filters.featured));
+  }
+  if (filters?.active !== undefined) {
+    conditions.push(eq(products.active, filters.active));
+  }
+
+  if (conditions.length > 0) {
+    query = query.where(and(...conditions));
+  }
+
+  return await query.orderBy(desc(products.createdAt));
+}
 
   async getProduct(id: number): Promise<Product | undefined> {
     const [product] = await db.select().from(products).where(eq(products.id, id));
