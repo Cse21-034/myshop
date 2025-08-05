@@ -379,6 +379,65 @@ app.get("/api/orders/:id", isAuthenticated, async (req: Request, res: Response) 
       res.status(500).json({ message: "Failed to fetch stats", code: "FETCH_STATS_ERROR" });
     }
   });
+  // Update order status
+app.put("/api/orders/:id/status", isAuthenticated, async (req, res) => {
+  const id = parseInt(req.params.id);
+  const { status } = req.body;
+  const userId = (req.user as any).id;
+  const user = await storage.getUser(userId);
+
+  if (!user?.isAdmin) {
+    return res.status(403).json({ message: "Forbidden" });
+  }
+
+  try {
+    const updatedOrder = await storage.updateOrderStatus(id, status);
+    res.json(updatedOrder);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to update order status" });
+  }
+});
+
+// Update contact message status
+app.put("/api/contact/:id/status", isAuthenticated, async (req, res) => {
+  const id = parseInt(req.params.id);
+  const { status } = req.body;
+  const userId = (req.user as any).id;
+  const user = await storage.getUser(userId);
+
+  if (!user?.isAdmin) {
+    return res.status(403).json({ message: "Forbidden" });
+  }
+
+  try {
+    const updatedMessage = await storage.updateContactMessageStatus(id, status);
+    res.json(updatedMessage);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to update message status" });
+  }
+});
+
+// Delete contact message
+app.delete("/api/contact/:id", isAuthenticated, async (req, res) => {
+  const id = parseInt(req.params.id);
+  const userId = (req.user as any).id;
+  const user = await storage.getUser(userId);
+
+  if (!user?.isAdmin) {
+    return res.status(403).json({ message: "Forbidden" });
+  }
+
+  try {
+    await db.delete(contactMessages).where(eq(contactMessages.id, id));
+    res.json({ message: "Message deleted" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to delete message" });
+  }
+});
+
 
   const httpServer = createServer(app);
   return httpServer;
