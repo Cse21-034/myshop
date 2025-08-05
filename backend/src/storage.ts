@@ -100,102 +100,99 @@ export class DatabaseStorage implements IStorage {
     await db.delete(categories).where(eq(categories.id, id));
   }
 
-async getProducts(filters?: {
-  categoryId?: number;
-  search?: string;
-  minPrice?: number;
-  maxPrice?: number;
-  featured?: boolean;
-  active?: boolean;
-}): Promise<(Product & { category: Category | null })[]> {
-  let query = db
-    .select({
-      id: products.id,
-      name: products.name,
-      description: products.description,
-      price: products.price,
-      originalPrice: products.originalPrice,
-      categoryId: products.categoryId,
-      slug: products.slug,
-      images: products.images,
-      featured: products.featured,
-      active: products.active,
-      createdAt: products.createdAt,
-      updatedAt: products.updatedAt,
+  async getProducts(filters?: {
+    categoryId?: number;
+    search?: string;
+    minPrice?: number;
+    maxPrice?: number;
+    featured?: boolean;
+    active?: boolean;
+  }): Promise<(Product & { category: Category | null })[]> {
+    let query = db
+      .select({
+        id: products.id,
+        name: products.name,
+        description: products.description,
+        price: products.price,
+        originalPrice: products.originalPrice,
+        categoryId: products.categoryId,
+        slug: products.slug,
+        images: products.images,
+        featured: products.featured,
+        active: products.active,
+        createdAt: products.createdAt,
+        updatedAt: products.updatedAt,
 
-      // Add these missing product fields:
-      sizes: products.sizes,
-      colors: products.colors,
-      stock: products.stock,
+        sizes: products.sizes,
+        colors: products.colors,
+        stock: products.stock,
 
-      // Alias category fields explicitly with prefix 'category_'
-      category_id: categories.id,
-      category_name: categories.name,
-      category_slug: categories.slug,
-      category_description: categories.description,
-      category_imageUrl: categories.imageUrl,
-      category_createdAt: categories.createdAt,
-    })
-    .from(products)
-    .leftJoin(categories, eq(products.categoryId, categories.id));
+        category_id: categories.id,
+        category_name: categories.name,
+        category_slug: categories.slug,
+        category_description: categories.description,
+        category_imageUrl: categories.imageUrl,
+        category_createdAt: categories.createdAt,
+      })
+      .from(products)
+      .leftJoin(categories, eq(products.categoryId, categories.id));
 
-  const conditions = [];
+    const conditions = [];
 
-  if (filters?.categoryId) {
-    conditions.push(eq(products.categoryId, filters.categoryId));
-  }
-  if (filters?.search) {
-    conditions.push(like(products.name, `%${filters.search}%`));
-  }
-  if (filters?.minPrice) {
-    conditions.push(gte(products.price, filters.minPrice.toString()));
-  }
-  if (filters?.maxPrice) {
-    conditions.push(lte(products.price, filters.maxPrice.toString()));
-  }
-  if (filters?.featured !== undefined) {
-    conditions.push(eq(products.featured, filters.featured));
-  }
-  if (filters?.active !== undefined) {
-    conditions.push(eq(products.active, filters.active));
-  }
+    if (filters?.categoryId) {
+      conditions.push(eq(products.categoryId, filters.categoryId));
+    }
+    if (filters?.search) {
+      conditions.push(like(products.name, `%${filters.search}%`));
+    }
+    if (filters?.minPrice !== undefined) {
+      conditions.push(gte(products.price, filters.minPrice.toString()));
+    }
+    if (filters?.maxPrice !== undefined) {
+      conditions.push(lte(products.price, filters.maxPrice.toString()));
+    }
+    if (filters?.featured !== undefined) {
+      conditions.push(eq(products.featured, filters.featured));
+    }
+    if (filters?.active !== undefined) {
+      conditions.push(eq(products.active, filters.active));
+    }
 
-  if (conditions.length > 0) {
-    query = query.where(and(...conditions));
-  }
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions));
+    }
 
-  // Await the query result properly
-  const rows = await query.orderBy(desc(products.createdAt));
+    // Await query result
+    const rows = await query.orderBy(desc(products.createdAt));
 
-  // Map flat rows to nested product + category object
-  return rows.map(row => {
-    const {
-      category_id,
-      category_name,
-      category_slug,
-      category_description,
-      category_imageUrl,
-      category_createdAt,
-      ...productFields
-    } = row;
+    // Map DB rows to product + nested category, handle nullable fields safely
+    return rows.map(row => {
+      const {
+        category_id,
+        category_name,
+        category_slug,
+        category_description,
+        category_imageUrl,
+        category_createdAt,
+        ...productFields
+      } = row;
 
-    const category = category_id
-      ? {
+      // Category can be null if no match on join - provide null or default
+      const category = category_id !== null && category_id !== undefined ? {
           id: category_id,
-          name: category_name,
-          slug: category_slug,
-          description: category_description,
-          imageUrl: category_imageUrl,
-          createdAt: category_createdAt,
-        }
-      : null;
+          name: category_name || "",            // fallback empty string if null
+          slug: category_slug || "",
+          description: category_description || "",
+          imageUrl: category_imageUrl || "",
+          createdAt: category_createdAt || null,
+        } : null;
 
-    return {
-      ...productFields,
-      category,
-    };
-  });
-}
+      return {
+        ...productFields,
+        category,
+      };
+    });
+  }
 
   async getProduct(id: number): Promise<Product | undefined> {
     const [product] = await db.select().from(products).where(eq(products.id, id));
