@@ -10,6 +10,7 @@ import {
   insertCartItemSchema,
   insertOrderSchema,
   insertContactMessageSchema,
+  updateUserSchema, // import updateUserSchema for profile validation
 } from "./schema";
 import { z } from "zod";
 import csurf from "csurf";
@@ -27,6 +28,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // New route: Update user profile
+  app.put("/api/user/profile", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const validated = updateUserSchema.parse(req.body);
+      const userId = (req.user as any).id;
+
+      const updatedUser = await storage.updateUser(userId, validated);
+
+      if (!updatedUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      res.json(updatedUser);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      console.error("Failed to update user profile", error);
+      res.status(500).json({ message: "Failed to update profile", code: "UPDATE_PROFILE_ERROR" });
+    }
+  });
+  
   app.post("/api/auth/refresh", csrfProtection, async (req: Request, res: Response) => {
     try {
       const { refreshToken } = req.body;
