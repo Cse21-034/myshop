@@ -19,7 +19,7 @@ app.use(
   })
 );
 
-// Allowed frontend origins
+// ✅ Allowed frontend origins (trimmed for safety)
 const allowedOrigins = [
   (process.env.FRONTEND_URL || "http://localhost:3000").trim(),
   "https://test-front-6jtcnlax1-leatiles-projects.vercel.app",
@@ -28,17 +28,23 @@ const allowedOrigins = [
   "https://fountstream.com"
 ];
 
-// CORS configuration
+// ✅ Fixed CORS configuration
 app.use(
   cors({
-    origin: allowedOrigins,
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.warn("❌ Blocked CORS origin:", origin);
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token", "X-Requested-With"],
     exposedHeaders: ["Set-Cookie"],
   })
 );
-
 // Log CORS headers
 app.use((req, res, next) => {
   console.log("🔗 CORS Headers:", {
