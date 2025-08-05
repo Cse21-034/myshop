@@ -100,7 +100,7 @@ export class DatabaseStorage implements IStorage {
     await db.delete(categories).where(eq(categories.id, id));
   }
 
- async getProducts(filters?: {
+async getProducts(filters?: {
   categoryId?: number;
   search?: string;
   minPrice?: number;
@@ -110,15 +110,25 @@ export class DatabaseStorage implements IStorage {
 }): Promise<(Product & { category: Category | null })[]> {
   let query = db
     .select({
-      ...products,
-      category: {
-        id: categories.id,
-        name: categories.name,
-        slug: categories.slug,
-        description: categories.description,
-        imageUrl: categories.imageUrl,
-        createdAt: categories.createdAt,
-      },
+      id: products.id,
+      name: products.name,
+      description: products.description,
+      price: products.price,
+      originalPrice: products.originalPrice,
+      categoryId: products.categoryId,
+      slug: products.slug,
+      images: products.images,
+      featured: products.featured,
+      active: products.active,
+      createdAt: products.createdAt,
+      updatedAt: products.updatedAt,
+      // Alias category fields explicitly with prefix 'category_'
+      category_id: categories.id,
+      category_name: categories.name,
+      category_slug: categories.slug,
+      category_description: categories.description,
+      category_imageUrl: categories.imageUrl,
+      category_createdAt: categories.createdAt,
     })
     .from(products)
     .leftJoin(categories, eq(products.categoryId, categories.id));
@@ -148,7 +158,36 @@ export class DatabaseStorage implements IStorage {
     query = query.where(and(...conditions));
   }
 
-  return await query.orderBy(desc(products.createdAt));
+  const rows = await query.orderBy(desc(products.createdAt));
+
+  // Map flat rows to nested product + category object
+  return rows.map(row => {
+    const {
+      category_id,
+      category_name,
+      category_slug,
+      category_description,
+      category_imageUrl,
+      category_createdAt,
+      ...productFields
+    } = row;
+
+    const category = category_id
+      ? {
+          id: category_id,
+          name: category_name,
+          slug: category_slug,
+          description: category_description,
+          imageUrl: category_imageUrl,
+          createdAt: category_createdAt,
+        }
+      : null;
+
+    return {
+      ...productFields,
+      category,
+    };
+  });
 }
 
   async getProduct(id: number): Promise<Product | undefined> {
