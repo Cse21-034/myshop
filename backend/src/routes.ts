@@ -302,24 +302,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/orders/:id", isAuthenticated, async (req: Request, res: Response) => {
-    try {
-      const id = parseInt(req.params.id);
-      const order = await storage.getOrder(id);
-      if (!order) {
-        return res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
-      }
-      const userId = (req.user as any).id;
-      const user = await storage.getUser(userId);
-      if (!user?.isAdmin && order.userId !== userId) {
-        return res.status(403).json({ message: "Access denied", code: "FORBIDDEN" });
-      }
-      res.json(order);
-    } catch (error) {
-      console.error("Error fetching order:", error);
-      res.status(500).json({ message: "Failed to fetch order", code: "FETCH_ORDER_ERROR" });
+app.get("/api/orders/:id", isAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid order id" });
+
+    const order = await storage.getOrder(id);
+    if (!order) {
+      return res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
     }
-  });
+
+    // Verify user owns order or is admin
+    const userId = (req.user as any).id;
+    const user = await storage.getUser(userId);
+    if (!user?.isAdmin && order.userId !== userId) {
+      return res.status(403).json({ message: "Access denied", code: "FORBIDDEN" });
+    }
+
+    // Fetch the order items
+    const items = await storage.getOrderItemsByOrderId(id);
+
+    res.json({ ...order, items });
+  } catch (error) {
+    console.error("Error fetching order:", error);
+    res.status(500).json({ message: "Failed to fetch order", code: "FETCH_ORDER_ERROR" });
+  }
+});
+
 
   app.post("/api/contact", async (req: Request, res: Response) => {
     try {
