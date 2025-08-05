@@ -252,8 +252,8 @@ export function setupGoogleAuth(app: Express) {
         // Store the actual database values in session
         req.session.user = { 
           id: freshUserData.id, 
-          email: freshUserData.email, 
-          isAdmin: freshUserData.isAdmin // Use actual database value
+          email: freshUserData.email || user.email, 
+          isAdmin: freshUserData.isAdmin || false // Use actual database value with fallback
         };
         
         console.log("🔐 Storing user in session:", req.session.user);
@@ -269,8 +269,8 @@ export function setupGoogleAuth(app: Express) {
         // Create JWT with actual database values
         const token = jwt.sign({ 
           id: freshUserData.id, 
-          email: freshUserData.email,
-          isAdmin: freshUserData.isAdmin // Include actual admin status in JWT
+          email: freshUserData.email || user.email,
+          isAdmin: freshUserData.isAdmin || false // Include actual admin status in JWT with fallback
         }, process.env.JWT_SECRET!, {
           expiresIn: "1h",
         });
@@ -406,8 +406,8 @@ export function setupGoogleAuth(app: Express) {
       // Create new JWT with fresh user data
       const newToken = jwt.sign({ 
         id: user.id, 
-        email: user.email,
-        isAdmin: user.isAdmin // Use actual database value
+        email: user.email || '',
+        isAdmin: user.isAdmin || false // Use actual database value with fallback
       }, process.env.JWT_SECRET!, {
         expiresIn: "1h",
       });
