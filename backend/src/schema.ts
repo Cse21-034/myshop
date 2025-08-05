@@ -219,3 +219,12 @@ export const insertContactMessageSchema = createInsertSchema(contactMessages).om
   id: true,
   createdAt: true,
 });
+
+// New schema for user update validation
+export const updateUserSchema = z.object({
+  firstName: z.string().min(1).optional(),
+  lastName: z.string().min(1).optional(),
+  language: z.string().optional(),
+  currency: z.string().optional(),
+  profileImageUrl: z.string().url().optional(),
+});
