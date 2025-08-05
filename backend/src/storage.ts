@@ -122,6 +122,12 @@ async getProducts(filters?: {
       active: products.active,
       createdAt: products.createdAt,
       updatedAt: products.updatedAt,
+
+      // Add these missing product fields:
+      sizes: products.sizes,
+      colors: products.colors,
+      stock: products.stock,
+
       // Alias category fields explicitly with prefix 'category_'
       category_id: categories.id,
       category_name: categories.name,
@@ -158,6 +164,7 @@ async getProducts(filters?: {
     query = query.where(and(...conditions));
   }
 
+  // Await the query result properly
   const rows = await query.orderBy(desc(products.createdAt));
 
   // Map flat rows to nested product + category object
