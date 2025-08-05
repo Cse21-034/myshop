@@ -38,6 +38,7 @@ export interface IStorage {
       profileImageUrl?: string;
     }>
   ): Promise<User | null>;
+  getOrderItemsByOrderId(orderId: number): Promise<OrderItem[]>;
   getCategories(): Promise<Category[]>;
   createCategory(category: InsertCategory): Promise<Category>;
   updateCategory(id: number, category: Partial<InsertCategory>): Promise<Category>;
@@ -105,7 +106,10 @@ async updateUser(
     return updatedUser ?? null;
   }
 
-  
+ async getOrderItemsByOrderId(orderId: number): Promise<OrderItem[]> {
+  return await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+}
+ 
   async getCategories(): Promise<Category[]> {
     return await db.select().from(categories).orderBy(categories.name);
   }
