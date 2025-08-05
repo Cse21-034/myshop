@@ -28,6 +28,16 @@ import { eq, desc, and, like, gte, lte, sql } from "drizzle-orm";
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
+  updateUser(
+    id: string,
+    updates: Partial<{
+      firstName: string;
+      lastName: string;
+      language?: string;
+      currency?: string;
+      profileImageUrl?: string;
+    }>
+  ): Promise<User | null>;
   getCategories(): Promise<Category[]>;
   createCategory(category: InsertCategory): Promise<Category>;
   updateCategory(id: number, category: Partial<InsertCategory>): Promise<Category>;
@@ -77,7 +87,25 @@ export class DatabaseStorage implements IStorage {
       .returning();
     return user;
   }
+async updateUser(
+    id: string,
+    updates: Partial<{
+      firstName: string;
+      lastName: string;
+      language?: string;
+      currency?: string;
+      profileImageUrl?: string;
+    }>
+  ): Promise<User | null> {
+    const [updatedUser] = await db
+      .update(users)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning();
+    return updatedUser ?? null;
+  }
 
+  
   async getCategories(): Promise<Category[]> {
     return await db.select().from(categories).orderBy(categories.name);
   }
