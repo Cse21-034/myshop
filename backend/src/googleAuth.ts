@@ -142,10 +142,12 @@ export function setupGoogleAuth(app: Express) {
             profileImageUrl: profile.photos?.[0]?.value,
           });
           console.log("✅ User created/updated:", user.id);
+          
+          // IMPORTANT: Use the actual user data from database, not hardcoded values
           done(null, {
             id: user.id,
             email: user.email,
-            isAdmin: user.isAdmin,
+            isAdmin: user.isAdmin, // Use the actual value from database
             firstName: user.firstName,
             lastName: user.lastName,
             profileImageUrl: user.profileImageUrl,
@@ -160,25 +162,36 @@ export function setupGoogleAuth(app: Express) {
 
   passport.serializeUser((user: any, done) => {
     console.log("🔐 Serializing user:", user.id);
-    done(null, { id: user.id, email: user.email, isAdmin: user.isAdmin });
+    // Store minimal data in session - this should match the database
+    done(null, { 
+      id: user.id, 
+      email: user.email, 
+      isAdmin: user.isAdmin // This should be the actual value from DB
+    });
   });
 
-  passport.deserializeUser(async (user: any, done) => {
+  passport.deserializeUser(async (sessionUser: any, done) => {
     try {
-      const cacheKey = `user:${user.id}`;
+      const cacheKey = `user:${sessionUser.id}`;
       let dbUser = await redisClient?.get?.(cacheKey);
+      
       if (!dbUser) {
-        dbUser = await storage.getUser(user.id);
+        // Always get fresh data from database
+        dbUser = await storage.getUser(sessionUser.id);
         if (!dbUser) {
-          console.warn("❌ User not found in DB:", user.id);
+          console.warn("❌ User not found in DB:", sessionUser.id);
           return done(null, null);
         }
+        
+        // Cache the fresh data
         await redisClient?.setEx?.(cacheKey, 3600, JSON.stringify(dbUser));
-        console.log("✅ Cached user in Redis:", user.id);
+        console.log("✅ Cached fresh user data in Redis:", sessionUser.id);
       } else {
         dbUser = JSON.parse(dbUser);
-        console.log("✅ Retrieved user from Redis cache:", user.id);
+        console.log("✅ Retrieved user from Redis cache:", sessionUser.id);
       }
+      
+      // Always return the database user data, not session data
       done(null, dbUser);
     } catch (err: unknown) {
       console.error("❌ Deserialization error:", err);
@@ -213,6 +226,7 @@ export function setupGoogleAuth(app: Express) {
       state: sessionId,
     })(req, res, next);
   });
+
   app.get(
     "/auth/google/callback",
     passport.authenticate("google", {
@@ -229,8 +243,21 @@ export function setupGoogleAuth(app: Express) {
         const sessionId = req.sessionID;
         const oldSessionId = req.query.state as string | undefined;
 
-        req.session.user = { id: user.id, email: user.email, isAdmin: user.isAdmin };
+        // Get the most up-to-date user data from database
+        const freshUserData = await storage.getUser(userId);
+        if (!freshUserData) {
+          throw new Error("User not found after authentication");
+        }
+
+        // Store the actual database values in session
+        req.session.user = { 
+          id: freshUserData.id, 
+          email: freshUserData.email, 
+          isAdmin: freshUserData.isAdmin // Use actual database value
+        };
+        
         console.log("🔐 Storing user in session:", req.session.user);
+        
         req.session.save((err) => {
           if (err) {
             console.error("❌ Failed to save session to Redis:", err);
@@ -239,19 +266,34 @@ export function setupGoogleAuth(app: Express) {
           }
         });
 
-        const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET!, {
+        // Create JWT with actual database values
+        const token = jwt.sign({ 
+          id: freshUserData.id, 
+          email: freshUserData.email,
+          isAdmin: freshUserData.isAdmin // Include actual admin status in JWT
+        }, process.env.JWT_SECRET!, {
           expiresIn: "1h",
         });
-        const refreshToken = jwt.sign({ id: user.id }, process.env.JWT_SECRET!, {
+        
+        const refreshToken = jwt.sign({ id: freshUserData.id }, process.env.JWT_SECRET!, {
           expiresIn: "7d",
         });
 
-        await redisClient.setEx(`refresh:${user.id}`, 7 * 24 * 60 * 60, refreshToken);
-        console.log("✅ Stored refresh token for user:", user.id);
+        await redisClient.setEx(`refresh:${freshUserData.id}`, 7 * 24 * 60 * 60, refreshToken);
+        console.log("✅ Stored refresh token for user:", freshUserData.id);
+
+        // Clear any cached user data to force fresh fetch
+        await redisClient?.del?.(`user:${userId}`);
 
         if (oldSessionId && storage.mergeCart) {
-          await storage.mergeCart(oldSessionId, userId);
-          console.log(`✅ Merged cart from session ${oldSessionId} to user ${userId}`);
+          try {
+            console.log(`🔍 Attempting to merge cart: sessionId=${oldSessionId}, userId=${userId}`);
+            await storage.mergeCart(oldSessionId, userId);
+            console.log(`✅ Merged cart from session ${oldSessionId} to user ${userId}`);
+          } catch (cartError) {
+            console.error("❌ Cart merge failed:", cartError);
+            // Don't fail the entire auth process if cart merge fails
+          }
         }
 
         const csrfToken = req.csrfToken();
@@ -275,7 +317,8 @@ export function setupGoogleAuth(app: Express) {
       }
       req.session.destroy(async () => {
         if (req.user) {
-          await redisClient.del(`refresh:${(req.user as any)?.id}`);
+          await redisClient?.del?.(`refresh:${(req.user as any)?.id}`);
+          await redisClient?.del?.(`user:${(req.user as any)?.id}`); // Clear user cache
         }
         res.redirect("https://fountstream.com/?logout=success");
       });
@@ -286,21 +329,44 @@ export function setupGoogleAuth(app: Express) {
     res.json({ csrfToken: req.csrfToken() });
   });
 
-  app.get("/api/auth/user", (req: Request, res: Response) => {
+  app.get("/api/auth/user", async (req: Request, res: Response) => {
     console.log("🔍 Auth check - Is Authenticated:", req.isAuthenticated());
     console.log("🔍 Auth check - User:", req.user);
     console.log("🔍 Auth check - Session User:", req.session.user);
     console.log("🔍 Auth check - Session ID:", req.sessionID);
     console.log("🔍 Auth check - Cookies:", req.headers.cookie || "No cookies");
 
-    if (req.isAuthenticated() && req.user) {
-      res.json(req.user);
-    } else if (req.session.user) {
-      res.json(req.session.user);
-    } else if (req.user) {
-      res.json(req.user);
-    } else {
-      res.status(401).json({ message: "Not authenticated" });
+    try {
+      let userData = null;
+
+      // Priority 1: JWT token user (most up-to-date)
+      if (req.user && typeof req.user === 'object' && 'id' in req.user) {
+        // Get fresh data from database for JWT users
+        const userId = (req.user as any).id;
+        userData = await storage.getUser(userId);
+        console.log("✅ Using JWT user data from database:", userData);
+      }
+      // Priority 2: Passport authenticated user
+      else if (req.isAuthenticated() && req.user) {
+        userData = req.user;
+        console.log("✅ Using Passport authenticated user:", userData);
+      }
+      // Priority 3: Session user
+      else if (req.session.user) {
+        // Get fresh data from database even for session users
+        const userId = req.session.user.id;
+        userData = await storage.getUser(userId);
+        console.log("✅ Using session user data from database:", userData);
+      }
+
+      if (userData) {
+        res.json(userData);
+      } else {
+        res.status(401).json({ message: "Not authenticated" });
+      }
+    } catch (error) {
+      console.error("❌ Error in /api/auth/user:", error);
+      res.status(401).json({ message: "Authentication error" });
     }
   });
 
@@ -310,9 +376,10 @@ export function setupGoogleAuth(app: Express) {
       user: req.user || null,
       sessionID: req.sessionID,
       hasSession: !!req.session,
+      sessionUser: req.session.user || null,
       cookies: req.headers.cookie || "No cookies",
       userAgent: req.headers["user-agent"],
-      sessionData: req.session,
+      timestamp: new Date().toISOString(),
     });
   });
 
@@ -330,14 +397,21 @@ export function setupGoogleAuth(app: Express) {
         return res.status(401).json({ message: "Invalid refresh token" });
       }
 
+      // Get fresh user data from database
       const user = await storage.getUser(decoded.id);
       if (!user) {
         return res.status(401).json({ message: "User not found" });
       }
 
-      const newToken = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET!, {
+      // Create new JWT with fresh user data
+      const newToken = jwt.sign({ 
+        id: user.id, 
+        email: user.email,
+        isAdmin: user.isAdmin // Use actual database value
+      }, process.env.JWT_SECRET!, {
         expiresIn: "1h",
       });
+      
       res.json({ token: newToken });
     } catch (error) {
       console.error("❌ Refresh token error:", error);
