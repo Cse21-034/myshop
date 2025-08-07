@@ -3,7 +3,8 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { isAuthenticated } from "./googleAuth";
-import { createStripePaymentIntent, capturePayPalOrder, createPayPalOrder, initiateOrangeMoneyPayment } from "./payment";
+import { createStripePaymentIntent, initiateOrangeMoneyPayment } from "./payment";
+import { createPayPalOrder, capturePayPalOrder } from "./paypal-service";
 import {
   insertProductSchema,
   insertCategorySchema,
@@ -74,27 +75,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/payments/paypal/create", csrfProtection, async (req: Request, res: Response) => {
-    try {
-      const { amount, currency } = req.body;
-      const orderId = await createPayPalOrder(amount, currency);
-      res.json({ orderId });
-    } catch (error) {
-      console.error("Error creating PayPal order:", error);
-      res.status(500).json({ message: "Failed to create PayPal order", code: "PAYPAL_CREATE_ERROR" });
+app.post("/api/payments/paypal/create", csrfProtection, async (req: Request, res: Response) => {
+  try {
+    const { amount, currency = "USD" } = req.body;
+    
+    // Validate input
+    if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+      return res.status(400).json({ 
+        message: "Invalid amount provided", 
+        code: "INVALID_AMOUNT" 
+      });
     }
-  });
 
-  app.post("/api/payments/paypal/capture", csrfProtection, async (req: Request, res: Response) => {
-    try {
-      const { orderId } = req.body;
-      await capturePayPalOrder(orderId);
-      res.json({ status: "success" });
-    } catch (error) {
-      console.error("Error capturing PayPal order:", error);
-      res.status(500).json({ message: "Failed to capture PayPal order", code: "PAYPAL_CAPTURE_ERROR" });
+    console.log('Creating PayPal order for amount:', amount, 'currency:', currency);
+    
+    const orderId = await createPayPalOrder(amount, currency);
+    
+    console.log('PayPal order created successfully:', orderId);
+    res.json({ orderId });
+  } catch (error: any) {
+    console.error("Error creating PayPal order:", error.message || error);
+    
+    const statusCode = error.message?.includes('Invalid') ? 400 : 500;
+    
+    res.status(statusCode).json({ 
+      message: error.message || "Failed to create PayPal order", 
+      code: "PAYPAL_CREATE_ERROR" 
+    });
+  }
+});
+
+app.post("/api/payments/paypal/capture", csrfProtection, async (req: Request, res: Response) => {
+  try {
+    const { orderId } = req.body;
+    
+    // Validate input
+    if (!orderId || typeof orderId !== 'string') {
+      return res.status(400).json({ 
+        message: "Invalid order ID provided", 
+        code: "INVALID_ORDER_ID" 
+      });
     }
-  });
+
+    console.log('Capturing PayPal order:', orderId);
+    
+    const captureResult = await capturePayPalOrder(orderId);
+    
+    console.log('PayPal order captured successfully:', captureResult);
+    res.json({ 
+      status: "success", 
+      id: captureResult.id,
+      captureId: captureResult.captureId,
+      amount: captureResult.amount
+    });
+  } catch (error: any) {
+    console.error("Error capturing PayPal order:", error.message || error);
+    
+    const statusCode = error.message?.includes('Invalid') || error.message?.includes('not found') ? 400 : 500;
+    
+    res.status(statusCode).json({ 
+      message: error.message || "Failed to capture PayPal order", 
+      code: "PAYPAL_CAPTURE_ERROR" 
+    });
+  }
+});
 
   app.post("/api/payments/orangemoney/initiate", csrfProtection, async (req: Request, res: Response) => {
     try {
