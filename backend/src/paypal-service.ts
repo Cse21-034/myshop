@@ -1,5 +1,5 @@
-// paypal-service.ts
-import axios from 'axios';
+// File: src/paypal-service.ts
+import axios, { AxiosError } from 'axios';
 
 const PAYPAL_BASE_URL = process.env.NODE_ENV === 'production' 
   ? 'https://api.paypal.com' 
@@ -28,7 +28,8 @@ async function getPayPalAccessToken(): Promise<string> {
 
     return response.data.access_token;
   } catch (error) {
-    console.error('Error getting PayPal access token:', error.response?.data || error.message);
+    const axiosError = error as AxiosError;
+    console.error('Error getting PayPal access token:', axiosError.response?.data || axiosError.message);
     throw new Error('Failed to get PayPal access token');
   }
 }
@@ -53,7 +54,7 @@ export async function createPayPalOrder(amount: string, currency: string = 'USD'
         cancel_url: `${process.env.FRONTEND_URL}/checkout`,
         shipping_preference: 'NO_SHIPPING', // We handle shipping separately
         user_action: 'PAY_NOW',
-        brand_name: 'Fountstream', // Replace with your actual store name
+        brand_name: 'Your Store Name', // Replace with your actual store name
       },
     };
 
@@ -76,10 +77,11 @@ export async function createPayPalOrder(amount: string, currency: string = 'USD'
       throw new Error('PayPal order creation failed - no order ID returned');
     }
   } catch (error) {
-    console.error('Error creating PayPal order:', error.response?.data || error.message);
+    const axiosError = error as AxiosError;
+    console.error('Error creating PayPal order:', axiosError.response?.data || axiosError.message);
     
-    if (error.response?.data?.details) {
-      const details = error.response.data.details;
+    if (axiosError.response?.data && typeof axiosError.response.data === 'object' && 'details' in axiosError.response.data) {
+      const details = (axiosError.response.data as any).details;
       const errorMessages = details.map((detail: any) => detail.description || detail.issue).join('; ');
       throw new Error(`PayPal order creation failed: ${errorMessages}`);
     }
@@ -117,10 +119,11 @@ export async function capturePayPalOrder(orderId: string): Promise<any> {
       throw new Error(`PayPal capture failed with status: ${response.data.status}`);
     }
   } catch (error) {
-    console.error('Error capturing PayPal order:', error.response?.data || error.message);
+    const axiosError = error as AxiosError;
+    console.error('Error capturing PayPal order:', axiosError.response?.data || axiosError.message);
     
-    if (error.response?.data?.details) {
-      const details = error.response.data.details;
+    if (axiosError.response?.data && typeof axiosError.response.data === 'object' && 'details' in axiosError.response.data) {
+      const details = (axiosError.response.data as any).details;
       const errorMessages = details.map((detail: any) => detail.description || detail.issue).join('; ');
       throw new Error(`PayPal capture failed: ${errorMessages}`);
     }
@@ -146,7 +149,8 @@ export async function getPayPalOrderDetails(orderId: string): Promise<any> {
 
     return response.data;
   } catch (error) {
-    console.error('Error getting PayPal order details:', error.response?.data || error.message);
+    const axiosError = error as AxiosError;
+    console.error('Error getting PayPal order details:', axiosError.response?.data || axiosError.message);
     throw new Error('Failed to get PayPal order details');
   }
 }
