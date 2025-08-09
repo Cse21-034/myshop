@@ -50,7 +50,8 @@ export interface IStorage {
     maxPrice?: number;
     featured?: boolean;
     active?: boolean;
-  }): Promise<Product[]>;
+    status?: string;
+  }): Promise<(Product & { category: Category | null })[]>;
   getProduct(id: number): Promise<Product | undefined>;
   getProductBySlug(slug: string): Promise<Product | undefined>;
   createProduct(product: InsertProduct): Promise<Product>;
@@ -88,7 +89,8 @@ export class DatabaseStorage implements IStorage {
       .returning();
     return user;
   }
-async updateUser(
+
+  async updateUser(
     id: string,
     updates: Partial<{
       firstName: string;
@@ -106,9 +108,9 @@ async updateUser(
     return updatedUser ?? null;
   }
 
- async getOrderItemsByOrderId(orderId: number): Promise<OrderItem[]> {
-  return await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
-}
+  async getOrderItemsByOrderId(orderId: number): Promise<OrderItem[]> {
+    return await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+  }
  
   async getCategories(): Promise<Category[]> {
     return await db.select().from(categories).orderBy(categories.name);
@@ -132,92 +134,97 @@ async updateUser(
     await db.delete(categories).where(eq(categories.id, id));
   }
 
- async getProducts(filters?: {
-  categoryId?: number;
-  search?: string;
-  minPrice?: number;
-  maxPrice?: number;
-  featured?: boolean;
-  active?: boolean;
-}): Promise<(Product & { category: Category | null })[]> {
-  const conditions: any[] = [];
+  async getProducts(filters?: {
+    categoryId?: number;
+    search?: string;
+    minPrice?: number;
+    maxPrice?: number;
+    featured?: boolean;
+    active?: boolean;
+    status?: string;
+  }): Promise<(Product & { category: Category | null })[]> {
+    const conditions: any[] = [];
 
-  if (filters?.categoryId) {
-    conditions.push(eq(products.categoryId, filters.categoryId));
+    if (filters?.categoryId) {
+      conditions.push(eq(products.categoryId, filters.categoryId));
+    }
+    if (filters?.search) {
+      conditions.push(like(products.name, `%${filters.search}%`));
+    }
+    if (filters?.minPrice !== undefined) {
+      conditions.push(gte(products.price, filters.minPrice.toString()));
+    }
+    if (filters?.maxPrice !== undefined) {
+      conditions.push(lte(products.price, filters.maxPrice.toString()));
+    }
+    if (filters?.featured !== undefined) {
+      conditions.push(eq(products.featured, filters.featured));
+    }
+    if (filters?.active !== undefined) {
+      conditions.push(eq(products.active, filters.active));
+    }
+    if (filters?.status) {
+      conditions.push(eq(products.status, filters.status));
+    }
+
+    // Build query with conditional where clause inline
+    const rows = await db
+      .select({
+        id: products.id,
+        name: products.name,
+        description: products.description,
+        price: products.price,
+        originalPrice: products.originalPrice,
+        categoryId: products.categoryId,
+        slug: products.slug,
+        images: products.images,
+        featured: products.featured,
+        active: products.active,
+        status: products.status, // Include status field
+        supplierUrl: products.supplierUrl, // Include supplierUrl field
+        createdAt: products.createdAt,
+        updatedAt: products.updatedAt,
+        sizes: products.sizes,
+        colors: products.colors,
+        stock: products.stock,
+
+        category_id: categories.id,
+        category_name: categories.name,
+        category_slug: categories.slug,
+        category_description: categories.description,
+        category_imageUrl: categories.imageUrl,
+        category_createdAt: categories.createdAt,
+      })
+      .from(products)
+      .leftJoin(categories, eq(products.categoryId, categories.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(products.createdAt));
+
+    // Map to nested product-category structure, handling nullable category fields
+    return rows.map(row => {
+      const {
+        category_id,
+        category_name,
+        category_slug,
+        category_description,
+        category_imageUrl,
+        category_createdAt,
+        ...productFields
+      } = row;
+
+      // Construct category object or null
+      const category = category_id != null ? {
+        id: category_id,
+        name: category_name || "",
+        slug: category_slug || "",
+        description: category_description || "",
+        imageUrl: category_imageUrl || "",
+        createdAt: category_createdAt || null,
+      } : null;
+
+      return { ...productFields, category };
+    });
   }
-  if (filters?.search) {
-    conditions.push(like(products.name, `%${filters.search}%`));
-  }
-  if (filters?.minPrice !== undefined) {
-    conditions.push(gte(products.price, filters.minPrice.toString()));
-  }
-  if (filters?.maxPrice !== undefined) {
-    conditions.push(lte(products.price, filters.maxPrice.toString()));
-  }
-  if (filters?.featured !== undefined) {
-    conditions.push(eq(products.featured, filters.featured));
-  }
-  if (filters?.active !== undefined) {
-    conditions.push(eq(products.active, filters.active));
-  }
-
-  // Build query with conditional where clause inline
-  const rows = await db
-    .select({
-      id: products.id,
-      name: products.name,
-      description: products.description,
-      price: products.price,
-      originalPrice: products.originalPrice,
-      categoryId: products.categoryId,
-      slug: products.slug,
-      images: products.images,
-      featured: products.featured,
-      active: products.active,
-      createdAt: products.createdAt,
-      updatedAt: products.updatedAt,
-      sizes: products.sizes,
-      colors: products.colors,
-      stock: products.stock,
-
-      category_id: categories.id,
-      category_name: categories.name,
-      category_slug: categories.slug,
-      category_description: categories.description,
-      category_imageUrl: categories.imageUrl,
-      category_createdAt: categories.createdAt,
-    })
-    .from(products)
-    .leftJoin(categories, eq(products.categoryId, categories.id))
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(products.createdAt));
-
-  // Map to nested product-category structure, handling nullable category fields
-  return rows.map(row => {
-    const {
-      category_id,
-      category_name,
-      category_slug,
-      category_description,
-      category_imageUrl,
-      category_createdAt,
-      ...productFields
-    } = row;
-
-    // Construct category object or null
-    const category = category_id != null ? {
-      id: category_id,
-      name: category_name || "",
-      slug: category_slug || "",
-      description: category_description || "",
-      imageUrl: category_imageUrl || "",
-      createdAt: category_createdAt || null,
-    } : null;
-
-    return { ...productFields, category };
-  });
-}
-
 
   async getProduct(id: number): Promise<Product | undefined> {
     const [product] = await db.select().from(products).where(eq(products.id, id));
@@ -230,16 +237,50 @@ async updateUser(
   }
 
   async createProduct(product: InsertProduct): Promise<Product> {
-    const [newProduct] = await db.insert(products).values(product).returning();
+    // Ensure arrays are properly handled
+    const productData = {
+      ...product,
+      images: product.images || [],
+      sizes: product.sizes || [],
+      colors: product.colors || [],
+      status: product.status || 'active',
+      supplierUrl: product.supplierUrl || null,
+    };
+
+    const [newProduct] = await db.insert(products).values(productData).returning();
     return newProduct;
   }
 
   async updateProduct(id: number, product: Partial<InsertProduct>): Promise<Product> {
+    // Handle array fields properly during updates
+    const updateData = {
+      ...product,
+      updatedAt: new Date(),
+    };
+
+    // If arrays are provided, ensure they're properly formatted
+    if (product.images !== undefined) {
+      updateData.images = product.images;
+    }
+    if (product.sizes !== undefined) {
+      updateData.sizes = product.sizes;
+    }
+    if (product.colors !== undefined) {
+      updateData.colors = product.colors;
+    }
+    if (product.status !== undefined) {
+      updateData.status = product.status;
+    }
+    if (product.supplierUrl !== undefined) {
+      updateData.supplierUrl = product.supplierUrl || null;
+    }
+
     const [updatedProduct] = await db
       .update(products)
-      .set({ ...product, updatedAt: new Date() })
+      .set(updateData)
       .where(eq(products.id, id))
       .returning();
+    
     return updatedProduct;
   }
 
