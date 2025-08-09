@@ -36,7 +36,7 @@ export const categories = pgTable("categories", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Products table
+// Products table - Enhanced with supplier URL
 export const products = pgTable("products", {
   id: serial("id").primaryKey(),
   name: varchar("name", { length: 255 }).notNull(),
@@ -51,6 +51,8 @@ export const products = pgTable("products", {
   stock: integer("stock").default(0),
   featured: boolean("featured").default(false),
   active: boolean("active").default(true),
+  status: varchar("status").default("active"), // active, inactive, sold, out_of_stock
+  supplierUrl: varchar("supplier_url"), // New field for supplier URL
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -185,7 +187,7 @@ export type CartItem = typeof cartItems.$inferSelect;
 export type InsertContactMessage = typeof contactMessages.$inferInsert;
 export type ContactMessage = typeof contactMessages.$inferSelect;
 
-// Schemas
+// Enhanced schemas with new fields
 export const insertCategorySchema = createInsertSchema(categories).omit({
   id: true,
   createdAt: true,
@@ -195,6 +197,13 @@ export const insertProductSchema = createInsertSchema(products).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  // Ensure proper validation for new fields
+  status: z.enum(["active", "inactive", "sold", "out_of_stock"]).optional().default("active"),
+  supplierUrl: z.string().url().optional().or(z.literal("")),
+  images: z.array(z.string().url()).default([]),
+  sizes: z.array(z.string()).default([]),
+  colors: z.array(z.string()).default([]),
 });
 
 export const insertOrderSchema = createInsertSchema(orders).omit({
