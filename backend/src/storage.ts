@@ -160,12 +160,21 @@ export class DatabaseStorage implements IStorage {
     if (filters?.featured !== undefined) {
       conditions.push(eq(products.featured, filters.featured));
     }
+
+
+    
     if (filters?.active !== undefined) {
       conditions.push(eq(products.active, filters.active));
-    }
+    }else {
+    conditions.push(eq(products.active, true));
+  }
+
+    
     if (filters?.status) {
       conditions.push(eq(products.status, filters.status));
-    }
+    }else {
+    conditions.push(eq(products.status, active));
+  }
 
     // Build query with conditional where clause inline
     const rows = await db
