@@ -173,7 +173,7 @@ export class DatabaseStorage implements IStorage {
     if (filters?.status) {
       conditions.push(eq(products.status, filters.status));
     }else {
-    conditions.push(eq(products.status, active));
+    conditions.push(eq(products.status, "active")); // ✅ Use string literal
   }
 
     // Build query with conditional where clause inline
