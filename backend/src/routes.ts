@@ -18,6 +18,7 @@ import {
 } from "./schema";
 import { z } from "zod";
 import csurf from "csurf";
+import { sendWhatsAppMessage } from "./twilio";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const csrfProtection = csurf();
@@ -330,6 +331,8 @@ app.post("/api/payments/paypal/capture", csrfProtection, async (req: Request, re
       const validatedOrder = insertOrderSchema.parse(orderWithUser);
       const order = await storage.createOrder(validatedOrder, items);
       await storage.clearCart(userId, sessionId);
+          // **Send WhatsApp notification**
+    await sendWhatsAppMessage({ ...order, items });
       res.json(order);
     } catch (error) {
       console.error("Error creating order:", error);
