@@ -39,7 +39,7 @@
     "ws": "^8.18.0",
     "zod": "^3.24.2",
     "zod-validation-error": "^3.4.0",
-    "twilio": "^4.13.0"   // <-- add this line
+    "twilio": "^4.13.0"   
   },
   "devDependencies": {
     "@types/axios": "^0.14.0",
