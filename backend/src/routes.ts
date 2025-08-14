@@ -488,7 +488,21 @@ app.delete("/api/contact/:id", isAuthenticated, async (req, res) => {
   }
 });
 
-
+ // Add delete order route
+  app.delete("/api/orders/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      if (!user?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required", code: "FORBIDDEN" });
+      }
+      const id = parseInt(req.params.id);
+      await storage.deleteOrder(id);
+      res.json({ message: "Order deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting order:", error);
+      res.status(500).json({ message: "Failed to delete order", code: "DELETE_ORDER_ERROR" });
+    }
+  });
   const httpServer = createServer(app);
   return httpServer;
 }
