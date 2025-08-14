@@ -430,66 +430,64 @@ app.get("/api/orders/:id", isAuthenticated, async (req: Request, res: Response) 
     }
   });
   // Update order status
-app.put("/api/orders/:id/status", isAuthenticated, async (req, res) => {
-  const id = parseInt(req.params.id);
-  const { status } = req.body;
-  const userId = (req.user as any).id;
-  const user = await storage.getUser(userId);
+// Update order status
+  app.put("/api/orders/:id/status", isAuthenticated, csrfProtection, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { status } = req.body;
+      const userId = (req.user as any).id;
+      const user = await storage.getUser(userId);
 
-  if (!user?.isAdmin) {
-    return res.status(403).json({ message: "Forbidden" });
-  }
+      if (!user?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required", code: "FORBIDDEN" });
+      }
 
-  try {
-    const updatedOrder = await storage.updateOrderStatus(id, status);
-    res.json(updatedOrder);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to update order status" });
-  }
-});
+      const updatedOrder = await storage.updateOrderStatus(id, status);
+      res.json(updatedOrder);
+    } catch (error) {
+      console.error("Error updating order status:", error);
+      res.status(500).json({ message: "Failed to update order status", code: "UPDATE_ORDER_STATUS_ERROR" });
+    }
+  });
 
-// Update contact message status
-app.put("/api/contact/:id/status", isAuthenticated, async (req, res) => {
-  const id = parseInt(req.params.id);
-  const { status } = req.body;
-  const userId = (req.user as any).id;
-  const user = await storage.getUser(userId);
+  // Update contact message status
+  app.put("/api/contact/:id/status", isAuthenticated, csrfProtection, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { status } = req.body;
+      const userId = (req.user as any).id;
+      const user = await storage.getUser(userId);
 
-  if (!user?.isAdmin) {
-    return res.status(403).json({ message: "Forbidden" });
-  }
+      if (!user?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required", code: "FORBIDDEN" });
+      }
 
-  try {
-    const updatedMessage = await storage.updateContactMessageStatus(id, status);
-    res.json(updatedMessage);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to update message status" });
-  }
-});
+      const updatedMessage = await storage.updateContactMessageStatus(id, status);
+      res.json(updatedMessage);
+    } catch (error) {
+      console.error("Error updating message status:", error);
+      res.status(500).json({ message: "Failed to update message status", code: "UPDATE_MESSAGE_STATUS_ERROR" });
+    }
+  });
 
-// Delete contact message
-app.delete("/api/contact/:id", isAuthenticated, async (req, res) => {
-  const id = parseInt(req.params.id);
-  const userId = (req.user as any).id;
-  const user = await storage.getUser(userId);
+  // Delete contact message
+  app.delete("/api/contact/:id", isAuthenticated, csrfProtection, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      if (!user?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required", code: "FORBIDDEN" });
+      }
+      const id = parseInt(req.params.id);
+      await db.delete(contactMessages).where(eq(contactMessages.id, id));
+      res.json({ message: "Message deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting message:", error);
+      res.status(500).json({ message: "Failed to delete message", code: "DELETE_MESSAGE_ERROR" });
+    }
+  });
 
-  if (!user?.isAdmin) {
-    return res.status(403).json({ message: "Forbidden" });
-  }
-
-  try {
-    await db.delete(contactMessages).where(eq(contactMessages.id, id));
-    res.json({ message: "Message deleted" });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to delete message" });
-  }
-});
-
- // Add delete order route
-  app.delete("/api/orders/:id", isAuthenticated, async (req: Request, res: Response) => {
+  // Delete order route
+  app.delete("/api/orders/:id", isAuthenticated, csrfProtection, async (req: Request, res: Response) => {
     try {
       const user = await storage.getUser((req.user as any).id);
       if (!user?.isAdmin) {
