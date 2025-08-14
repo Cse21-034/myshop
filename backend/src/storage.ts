@@ -70,6 +70,7 @@ export interface IStorage {
   createContactMessage(message: InsertContactMessage): Promise<ContactMessage>;
   getContactMessages(): Promise<ContactMessage[]>;
   updateContactMessageStatus(id: number, status: string): Promise<ContactMessage>;
+  deleteOrder(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -108,6 +109,13 @@ export class DatabaseStorage implements IStorage {
     return updatedUser ?? null;
   }
 
+  async deleteOrder(id: number): Promise<void> {
+    // Delete associated order items first
+    await db.delete(orderItems).where(eq(orderItems.orderId, id));
+    // Then delete the order
+    await db.delete(orders).where(eq(orders.id, id));
+  }
+  
   async getOrderItemsByOrderId(orderId: number): Promise<OrderItem[]> {
     return await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
   }
