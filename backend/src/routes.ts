@@ -4,7 +4,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { isAuthenticated } from "./googleAuth";
 import { eq } from "drizzle-orm";
-import { db } from "./db"; // Adjust path if your db file is elsewhere
+import { db } from "./db";
 import { contactMessages } from "./schema";
 import { createStripePaymentIntent, initiateOrangeMoneyPayment } from "./payment";
 import { createPayPalOrder, capturePayPalOrder } from "./paypal-service";
@@ -14,14 +14,83 @@ import {
   insertCartItemSchema,
   insertOrderSchema,
   insertContactMessageSchema,
-  updateUserSchema, // import updateUserSchema for profile validation
+  updateUserSchema,
 } from "./schema";
 import { z } from "zod";
 import csurf from "csurf";
 import { sendWhatsAppMessage } from "./twilio";
 
+// ── ERM Marketplace Integration ───────────────────────────────────────────────
+import { syncMarketplaceProducts } from "./marketplace-sync.service";
+import { notifyERMOfOrder } from "./erm-order-notify.service";
+
 export async function registerRoutes(app: Express): Promise<Server> {
   const csrfProtection = csurf();
+
+  // ── ERM: Sync on startup (non-blocking) ──────────────────────────────────
+  if (process.env.ERM_AUTO_SYNC_ON_START === "true") {
+    syncMarketplaceProducts().catch((err) =>
+      console.error("[ERM Sync] Startup sync failed:", err),
+    );
+  }
+
+  // ── ERM: Periodic background sync ────────────────────────────────────────
+  const syncIntervalMs = parseInt(
+    process.env.ERM_SYNC_INTERVAL_MS ?? "900000",
+    10,
+  );
+
+  if (process.env.ERM_AUTO_SYNC === "true") {
+    setInterval(() => {
+      syncMarketplaceProducts().catch((err) =>
+        console.error("[ERM Sync] Periodic sync failed:", err),
+      );
+    }, syncIntervalMs);
+    console.log(
+      `[ERM Sync] Periodic sync scheduled every ${syncIntervalMs / 60000} min`,
+    );
+  }
+
+  // ==========================================================================
+  // ERM ADMIN ROUTES
+  // ==========================================================================
+
+  app.post("/api/erm/sync", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      if (!user?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required", code: "FORBIDDEN" });
+      }
+      console.log("[ERM Sync] Manual sync triggered by admin", (req.user as any).id);
+      const summary = await syncMarketplaceProducts();
+      res.json({ message: "ERM sync complete", summary });
+    } catch (error) {
+      console.error("[ERM Sync] Manual sync failed:", error);
+      res.status(500).json({ message: "ERM sync failed", code: "ERM_SYNC_ERROR" });
+    }
+  });
+
+  app.get("/api/erm/status", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      if (!user?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required", code: "FORBIDDEN" });
+      }
+      res.json({
+        ermApiUrl: process.env.ERM_API_URL ?? "https://farm-management-api-6p6h.onrender.com",
+        autoSyncEnabled: process.env.ERM_AUTO_SYNC === "true",
+        syncIntervalMinutes: syncIntervalMs / 60000,
+        orderNotifyEnabled: process.env.ERM_NOTIFY_ORDERS === "true",
+      });
+    } catch (error) {
+      console.error("[ERM Status] Error:", error);
+      res.status(500).json({ message: "Failed to fetch ERM status", code: "ERM_STATUS_ERROR" });
+    }
+  });
+
+  // ==========================================================================
+  // AUTH ROUTES
+  // ==========================================================================
 
   app.get("/api/auth/user", async (req: Request, res: Response) => {
     try {
@@ -33,18 +102,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // New route: Update user profile
   app.put("/api/user/profile", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const validated = updateUserSchema.parse(req.body);
       const userId = (req.user as any).id;
-
       const updatedUser = await storage.updateUser(userId, validated);
-
       if (!updatedUser) {
         return res.status(404).json({ message: "User not found" });
       }
-
       res.json(updatedUser);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -54,7 +119,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to update profile", code: "UPDATE_PROFILE_ERROR" });
     }
   });
-  
+
   app.post("/api/auth/refresh", csrfProtection, async (req: Request, res: Response) => {
     try {
       const { refreshToken } = req.body;
@@ -68,6 +133,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==========================================================================
+  // PAYMENT ROUTES
+  // ==========================================================================
+
   app.post("/api/payments/stripe/create", csrfProtection, async (req: Request, res: Response) => {
     try {
       const { amount, currency } = req.body;
@@ -79,70 +148,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-app.post("/api/payments/paypal/create", csrfProtection, async (req: Request, res: Response) => {
-  try {
-    const { amount, currency = "USD" } = req.body;
-    
-    // Validate input
-    if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
-      return res.status(400).json({ 
-        message: "Invalid amount provided", 
-        code: "INVALID_AMOUNT" 
+  app.post("/api/payments/paypal/create", csrfProtection, async (req: Request, res: Response) => {
+    try {
+      const { amount, currency = "USD" } = req.body;
+
+      if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+        return res.status(400).json({
+          message: "Invalid amount provided",
+          code: "INVALID_AMOUNT",
+        });
+      }
+
+      console.log("Creating PayPal order for amount:", amount, "currency:", currency);
+      const orderId = await createPayPalOrder(amount, currency);
+      console.log("PayPal order created successfully:", orderId);
+      res.json({ orderId });
+    } catch (error: any) {
+      console.error("Error creating PayPal order:", error.message || error);
+      const statusCode = error.message?.includes("Invalid") ? 400 : 500;
+      res.status(statusCode).json({
+        message: error.message || "Failed to create PayPal order",
+        code: "PAYPAL_CREATE_ERROR",
       });
     }
+  });
 
-    console.log('Creating PayPal order for amount:', amount, 'currency:', currency);
-    
-    const orderId = await createPayPalOrder(amount, currency);
-    
-    console.log('PayPal order created successfully:', orderId);
-    res.json({ orderId });
-  } catch (error: any) {
-    console.error("Error creating PayPal order:", error.message || error);
-    
-    const statusCode = error.message?.includes('Invalid') ? 400 : 500;
-    
-    res.status(statusCode).json({ 
-      message: error.message || "Failed to create PayPal order", 
-      code: "PAYPAL_CREATE_ERROR" 
-    });
-  }
-});
+  app.post("/api/payments/paypal/capture", csrfProtection, async (req: Request, res: Response) => {
+    try {
+      const { orderId } = req.body;
 
-app.post("/api/payments/paypal/capture", csrfProtection, async (req: Request, res: Response) => {
-  try {
-    const { orderId } = req.body;
-    
-    // Validate input
-    if (!orderId || typeof orderId !== 'string') {
-      return res.status(400).json({ 
-        message: "Invalid order ID provided", 
-        code: "INVALID_ORDER_ID" 
+      if (!orderId || typeof orderId !== "string") {
+        return res.status(400).json({
+          message: "Invalid order ID provided",
+          code: "INVALID_ORDER_ID",
+        });
+      }
+
+      console.log("Capturing PayPal order:", orderId);
+      const captureResult = await capturePayPalOrder(orderId);
+      console.log("PayPal order captured successfully:", captureResult);
+      res.json({
+        status: "success",
+        id: captureResult.id,
+        captureId: captureResult.captureId,
+        amount: captureResult.amount,
+      });
+    } catch (error: any) {
+      console.error("Error capturing PayPal order:", error.message || error);
+      const statusCode =
+        error.message?.includes("Invalid") || error.message?.includes("not found")
+          ? 400
+          : 500;
+      res.status(statusCode).json({
+        message: error.message || "Failed to capture PayPal order",
+        code: "PAYPAL_CAPTURE_ERROR",
       });
     }
-
-    console.log('Capturing PayPal order:', orderId);
-    
-    const captureResult = await capturePayPalOrder(orderId);
-    
-    console.log('PayPal order captured successfully:', captureResult);
-    res.json({ 
-      status: "success", 
-      id: captureResult.id,
-      captureId: captureResult.captureId,
-      amount: captureResult.amount
-    });
-  } catch (error: any) {
-    console.error("Error capturing PayPal order:", error.message || error);
-    
-    const statusCode = error.message?.includes('Invalid') || error.message?.includes('not found') ? 400 : 500;
-    
-    res.status(statusCode).json({ 
-      message: error.message || "Failed to capture PayPal order", 
-      code: "PAYPAL_CAPTURE_ERROR" 
-    });
-  }
-});
+  });
 
   app.post("/api/payments/orangemoney/initiate", csrfProtection, async (req: Request, res: Response) => {
     try {
@@ -154,6 +216,10 @@ app.post("/api/payments/paypal/capture", csrfProtection, async (req: Request, re
       res.status(500).json({ message: "Failed to initiate Orange Money payment", code: "ORANGEMONEY_INITIATE_ERROR" });
     }
   });
+
+  // ==========================================================================
+  // CATEGORY ROUTES
+  // ==========================================================================
 
   app.get("/api/categories", async (req: Request, res: Response) => {
     try {
@@ -179,6 +245,10 @@ app.post("/api/payments/paypal/capture", csrfProtection, async (req: Request, re
       res.status(500).json({ message: "Failed to create category", code: "CREATE_CATEGORY_ERROR" });
     }
   });
+
+  // ==========================================================================
+  // PRODUCT ROUTES
+  // ==========================================================================
 
   app.get("/api/products", async (req: Request, res: Response) => {
     try {
@@ -258,6 +328,10 @@ app.post("/api/payments/paypal/capture", csrfProtection, async (req: Request, re
     }
   });
 
+  // ==========================================================================
+  // CART ROUTES
+  // ==========================================================================
+
   app.get("/api/cart", async (req: Request, res: Response) => {
     try {
       const userId = req.isAuthenticated() ? (req.user as any).id : undefined;
@@ -322,6 +396,10 @@ app.post("/api/payments/paypal/capture", csrfProtection, async (req: Request, re
     }
   });
 
+  // ==========================================================================
+  // ORDER ROUTES
+  // ==========================================================================
+
   app.post("/api/orders", csrfProtection, async (req: Request, res: Response) => {
     try {
       const userId = req.isAuthenticated() ? (req.user as any).id : undefined;
@@ -330,9 +408,18 @@ app.post("/api/payments/paypal/capture", csrfProtection, async (req: Request, re
       const orderWithUser = { ...orderData, userId };
       const validatedOrder = insertOrderSchema.parse(orderWithUser);
       const order = await storage.createOrder(validatedOrder, items);
+
+      // Clear cart
       await storage.clearCart(userId, sessionId);
-          // **Send WhatsApp notification**
-    await sendWhatsAppMessage({ ...order, items });
+
+      // Send WhatsApp notification
+      await sendWhatsAppMessage({ ...order, items });
+
+      // Notify ERM of any items sourced from the marketplace (non-blocking)
+      notifyERMOfOrder(order, items).catch((err) =>
+        console.error("[ERM Notify] Background notification failed:", err),
+      );
+
       res.json(order);
     } catch (error) {
       console.error("Error creating order:", error);
@@ -352,33 +439,70 @@ app.post("/api/payments/paypal/capture", csrfProtection, async (req: Request, re
     }
   });
 
-app.get("/api/orders/:id", isAuthenticated, async (req: Request, res: Response) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ message: "Invalid order id" });
+  app.get("/api/orders/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid order id" });
 
-    const order = await storage.getOrder(id);
-    if (!order) {
-      return res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+      const order = await storage.getOrder(id);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+      }
+
+      // Verify user owns order or is admin
+      const userId = (req.user as any).id;
+      const user = await storage.getUser(userId);
+      if (!user?.isAdmin && order.userId !== userId) {
+        return res.status(403).json({ message: "Access denied", code: "FORBIDDEN" });
+      }
+
+      // Fetch the order items
+      const items = await storage.getOrderItemsByOrderId(id);
+
+      res.json({ ...order, items });
+    } catch (error) {
+      console.error("Error fetching order:", error);
+      res.status(500).json({ message: "Failed to fetch order", code: "FETCH_ORDER_ERROR" });
     }
+  });
 
-    // Verify user owns order or is admin
-    const userId = (req.user as any).id;
-    const user = await storage.getUser(userId);
-    if (!user?.isAdmin && order.userId !== userId) {
-      return res.status(403).json({ message: "Access denied", code: "FORBIDDEN" });
+  app.put("/api/orders/:id/status", isAuthenticated, csrfProtection, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { status } = req.body;
+      const userId = (req.user as any).id;
+      const user = await storage.getUser(userId);
+
+      if (!user?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required", code: "FORBIDDEN" });
+      }
+
+      const updatedOrder = await storage.updateOrderStatus(id, status);
+      res.json(updatedOrder);
+    } catch (error) {
+      console.error("Error updating order status:", error);
+      res.status(500).json({ message: "Failed to update order status", code: "UPDATE_ORDER_STATUS_ERROR" });
     }
+  });
 
-    // Fetch the order items
-    const items = await storage.getOrderItemsByOrderId(id);
+  app.delete("/api/orders/:id", isAuthenticated, csrfProtection, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      if (!user?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required", code: "FORBIDDEN" });
+      }
+      const id = parseInt(req.params.id);
+      await storage.deleteOrder(id);
+      res.json({ message: "Order deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting order:", error);
+      res.status(500).json({ message: "Failed to delete order", code: "DELETE_ORDER_ERROR" });
+    }
+  });
 
-    res.json({ ...order, items });
-  } catch (error) {
-    console.error("Error fetching order:", error);
-    res.status(500).json({ message: "Failed to fetch order", code: "FETCH_ORDER_ERROR" });
-  }
-});
-
+  // ==========================================================================
+  // CONTACT ROUTES
+  // ==========================================================================
 
   app.post("/api/contact", async (req: Request, res: Response) => {
     try {
@@ -405,6 +529,44 @@ app.get("/api/orders/:id", isAuthenticated, async (req: Request, res: Response) 
     }
   });
 
+  app.put("/api/contact/:id/status", isAuthenticated, csrfProtection, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { status } = req.body;
+      const userId = (req.user as any).id;
+      const user = await storage.getUser(userId);
+
+      if (!user?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required", code: "FORBIDDEN" });
+      }
+
+      const updatedMessage = await storage.updateContactMessageStatus(id, status);
+      res.json(updatedMessage);
+    } catch (error) {
+      console.error("Error updating message status:", error);
+      res.status(500).json({ message: "Failed to update message status", code: "UPDATE_MESSAGE_STATUS_ERROR" });
+    }
+  });
+
+  app.delete("/api/contact/:id", isAuthenticated, csrfProtection, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      if (!user?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required", code: "FORBIDDEN" });
+      }
+      const id = parseInt(req.params.id);
+      await db.delete(contactMessages).where(eq(contactMessages.id, id));
+      res.json({ message: "Message deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting message:", error);
+      res.status(500).json({ message: "Failed to delete message", code: "DELETE_MESSAGE_ERROR" });
+    }
+  });
+
+  // ==========================================================================
+  // ADMIN STATS
+  // ==========================================================================
+
   app.get("/api/admin/stats", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const user = await storage.getUser((req.user as any).id);
@@ -429,78 +591,7 @@ app.get("/api/orders/:id", isAuthenticated, async (req: Request, res: Response) 
       res.status(500).json({ message: "Failed to fetch stats", code: "FETCH_STATS_ERROR" });
     }
   });
-  // Update order status
-// Update order status
-  app.put("/api/orders/:id/status", isAuthenticated, csrfProtection, async (req: Request, res: Response) => {
-    try {
-      const id = parseInt(req.params.id);
-      const { status } = req.body;
-      const userId = (req.user as any).id;
-      const user = await storage.getUser(userId);
 
-      if (!user?.isAdmin) {
-        return res.status(403).json({ message: "Admin access required", code: "FORBIDDEN" });
-      }
-
-      const updatedOrder = await storage.updateOrderStatus(id, status);
-      res.json(updatedOrder);
-    } catch (error) {
-      console.error("Error updating order status:", error);
-      res.status(500).json({ message: "Failed to update order status", code: "UPDATE_ORDER_STATUS_ERROR" });
-    }
-  });
-
-  // Update contact message status
-  app.put("/api/contact/:id/status", isAuthenticated, csrfProtection, async (req: Request, res: Response) => {
-    try {
-      const id = parseInt(req.params.id);
-      const { status } = req.body;
-      const userId = (req.user as any).id;
-      const user = await storage.getUser(userId);
-
-      if (!user?.isAdmin) {
-        return res.status(403).json({ message: "Admin access required", code: "FORBIDDEN" });
-      }
-
-      const updatedMessage = await storage.updateContactMessageStatus(id, status);
-      res.json(updatedMessage);
-    } catch (error) {
-      console.error("Error updating message status:", error);
-      res.status(500).json({ message: "Failed to update message status", code: "UPDATE_MESSAGE_STATUS_ERROR" });
-    }
-  });
-
-  // Delete contact message
-  app.delete("/api/contact/:id", isAuthenticated, csrfProtection, async (req: Request, res: Response) => {
-    try {
-      const user = await storage.getUser((req.user as any).id);
-      if (!user?.isAdmin) {
-        return res.status(403).json({ message: "Admin access required", code: "FORBIDDEN" });
-      }
-      const id = parseInt(req.params.id);
-      await db.delete(contactMessages).where(eq(contactMessages.id, id));
-      res.json({ message: "Message deleted successfully" });
-    } catch (error) {
-      console.error("Error deleting message:", error);
-      res.status(500).json({ message: "Failed to delete message", code: "DELETE_MESSAGE_ERROR" });
-    }
-  });
-
-  // Delete order route
-  app.delete("/api/orders/:id", isAuthenticated, csrfProtection, async (req: Request, res: Response) => {
-    try {
-      const user = await storage.getUser((req.user as any).id);
-      if (!user?.isAdmin) {
-        return res.status(403).json({ message: "Admin access required", code: "FORBIDDEN" });
-      }
-      const id = parseInt(req.params.id);
-      await storage.deleteOrder(id);
-      res.json({ message: "Order deleted successfully" });
-    } catch (error) {
-      console.error("Error deleting order:", error);
-      res.status(500).json({ message: "Failed to delete order", code: "DELETE_ORDER_ERROR" });
-    }
-  });
   const httpServer = createServer(app);
   return httpServer;
 }
