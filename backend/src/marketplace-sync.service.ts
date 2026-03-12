@@ -35,19 +35,19 @@ export const marketplaceProductMap = pgTable(
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface ERMMarketplaceListing {
-  id:           string;   // UUID
-  farm_id:      string;
-  entity_type:  string;   // "livestock" | "crop" | "inventory"
-  entity_id:    string;
-  title:        string;
+  id:          string;   // UUID
+  farmId:      string;   // camelCase — actual ERM API field name
+  entityType:  string;   // "livestock" | "crop" | "inventory"
+  entityId:    string;
+  title:       string;
   description?: string;
-  price:        number;
-  currency:     string;
-  image_url?:   string;   // single string — NOT an array
-  quantity?:    number;   // how many units the farmer is selling (may not exist)
-  status:       string;
-  created_at:   string;
-  updated_at?:  string;
+  price:       number;
+  currency:    string;
+  imageUrl?:   string;   // camelCase — actual ERM API field name
+  quantity?:   number;
+  status:      string;
+  createdAt:   string;
+  updatedAt?:  string;
 }
 
 export interface ERMPublicResponse {
@@ -70,8 +70,8 @@ const ERM_MARKETPLACE_ENDPOINT = `${ERM_BASE_URL}/api/v1/external/marketplace`;
 
 // ─── Category map ─────────────────────────────────────────────────────────────
 //
-// Maps ERM entity_type → { name, slug } for the e-commerce categories table.
-// Add more entries here if ERM introduces new entity types.
+// Maps ERM entityType → { name, slug } for the e-commerce categories table.
+// Only 3 valid entity types exist in ERM: livestock, crop, inventory.
 //
 const ENTITY_TYPE_CATEGORY: Record<string, { name: string; slug: string; description: string }> = {
   livestock: {
@@ -91,13 +91,6 @@ const ENTITY_TYPE_CATEGORY: Record<string, { name: string; slug: string; descrip
   },
 };
 
-// Fallback for unknown entity types
-const DEFAULT_CATEGORY = {
-  name:        "Marketplace",
-  slug:        "marketplace",
-  description: "Items from the farm marketplace",
-};
-
 // ─── In-memory category cache (slug → integer id) ─────────────────────────────
 // Avoids hitting the DB on every product during a sync run.
 const categoryCache = new Map<string, number>();
@@ -107,7 +100,16 @@ const categoryCache = new Map<string, number>();
  * Returns the integer category id.
  */
 async function getOrCreateCategoryId(entityType: string): Promise<number> {
-  const def = ENTITY_TYPE_CATEGORY[entityType] ?? DEFAULT_CATEGORY;
+  const def = ENTITY_TYPE_CATEGORY[entityType];
+
+  if (!def) {
+    // Should never happen — ERM only has livestock, crop, inventory
+    console.warn(
+      `[ERM Sync] ⚠️  Unknown entityType "${entityType}" — skipping category assignment`,
+    );
+    // Use livestock as a safe fallback rather than creating a junk category
+    return getOrCreateCategoryId("livestock");
+  }
 
   // Return from cache if we already resolved this slug
   if (categoryCache.has(def.slug)) {
@@ -259,10 +261,10 @@ export async function syncMarketplaceProducts(): Promise<{
   for (const listing of ermListings) {
     try {
       // ── FIX 1: Resolve category id from entity_type ──────────────────────
-      const categoryId = await getOrCreateCategoryId(listing.entity_type);
+      const categoryId = await getOrCreateCategoryId(listing.entityType);
 
-      // ── FIX 2: Build images array from single image_url string ───────────
-      const images = buildImagesArray(listing.image_url);
+      // ── FIX 2: Build images array from single imageUrl string ─────────────
+      const images = buildImagesArray(listing.imageUrl);
 
       const productData = {
         name:        listing.title,
@@ -316,8 +318,8 @@ export async function syncMarketplaceProducts(): Promise<{
         await db.insert(marketplaceProductMap).values({
           productId:     newProduct.id,
           marketplaceId: listing.id,
-          farmId:        listing.farm_id,
-          entityType:    listing.entity_type,
+          farmId:        listing.farmId,
+          entityType:    listing.entityType,
           lastSyncedAt:  new Date(),
         });
 
