@@ -1,49 +1,33 @@
 /**
  * ERM Marketplace Sync Service
  *
- * Fetches listings from the ERM public API and syncs them into the
- * e-commerce products table. The UUID→integer ID bridge lives in
- * the marketplace_product_map table so the rest of the e-commerce
- * codebase never needs to change.
+ * Fixes applied vs previous version:
+ *  1. IMAGE URL  — ERM sends image_url as a plain string. This file now
+ *                  validates it is a real URL before wrapping it in an array,
+ *                  so images[] is never empty when a URL exists.
  *
- * Flow:
- *   ERM API  ──fetch──►  syncMarketplaceProducts()
- *                              │
- *                    for each ERM listing
- *                              │
- *              ┌───────────────┴──────────────────┐
- *              │ already mapped?                  │ new listing
- *              ▼                                  ▼
- *       updateProduct()                  createProduct()
- *                                       insertMapping()
+ *  2. CATEGORIES — ERM entity_type (livestock / crop / inventory) is mapped to
+ *                  a category in the e-commerce categories table.
+ *                  If the category doesn't exist yet it is created automatically.
+ *                  The resulting integer category_id is then set on the product.
  */
 
 import { db } from "./db";
 import { storage } from "./storage";
-import { products } from "./schema";
+import { categories, products } from "./schema";
 import { eq, sql } from "drizzle-orm";
 import { pgTable, varchar, integer, timestamp, index } from "drizzle-orm/pg-core";
 
-// ─── Mapping table (add this migration to your DB) ───────────────────────────
-// Run once:
-//   CREATE TABLE marketplace_product_map (
-//     id            SERIAL PRIMARY KEY,
-//     product_id    INTEGER NOT NULL UNIQUE REFERENCES products(id) ON DELETE CASCADE,
-//     marketplace_id VARCHAR(36) NOT NULL UNIQUE,
-//     farm_id        TEXT,
-//     entity_type    TEXT,
-//     last_synced_at TIMESTAMP DEFAULT NOW()
-//   );
-
+// ─── Drizzle table for the UUID → integer ID bridge ──────────────────────────
 export const marketplaceProductMap = pgTable(
   "marketplace_product_map",
   {
-    id:             integer("id").primaryKey().generatedAlwaysAsIdentity(),
-    productId:      integer("product_id").notNull().unique(),
-    marketplaceId:  varchar("marketplace_id", { length: 36 }).notNull().unique(),
-    farmId:         varchar("farm_id"),
-    entityType:     varchar("entity_type"),
-    lastSyncedAt:   timestamp("last_synced_at").defaultNow(),
+    id:            integer("id").primaryKey().generatedAlwaysAsIdentity(),
+    productId:     integer("product_id").notNull().unique(),
+    marketplaceId: varchar("marketplace_id", { length: 36 }).notNull().unique(),
+    farmId:        varchar("farm_id"),
+    entityType:    varchar("entity_type"),
+    lastSyncedAt:  timestamp("last_synced_at").defaultNow(),
   },
   (t) => [index("idx_mpm_marketplace_id").on(t.marketplaceId)],
 );
@@ -51,27 +35,28 @@ export const marketplaceProductMap = pgTable(
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface ERMMarketplaceListing {
-  id: string;            // UUID
-  farm_id: string;
-  entity_type: string;
-  entity_id: string;
-  title: string;
+  id:           string;   // UUID
+  farm_id:      string;
+  entity_type:  string;   // "livestock" | "crop" | "inventory"
+  entity_id:    string;
+  title:        string;
   description?: string;
-  price: number;
-  currency: string;
-  image_url?: string;
-  status: string;
-  created_at: string;
-  updated_at?: string;
+  price:        number;
+  currency:     string;
+  image_url?:   string;   // single string — NOT an array
+  quantity?:    number;   // how many units the farmer is selling (may not exist)
+  status:       string;
+  created_at:   string;
+  updated_at?:  string;
 }
 
 export interface ERMPublicResponse {
   success: boolean;
   data: ERMMarketplaceListing[];
   pagination: {
-    total: number;
-    limit: number;
-    offset: number;
+    total:   number;
+    limit:   number;
+    offset:  number;
     hasNext: boolean;
   };
 }
@@ -83,24 +68,106 @@ const ERM_BASE_URL =
 
 const ERM_MARKETPLACE_ENDPOINT = `${ERM_BASE_URL}/api/v1/external/marketplace`;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Category map ─────────────────────────────────────────────────────────────
+//
+// Maps ERM entity_type → { name, slug } for the e-commerce categories table.
+// Add more entries here if ERM introduces new entity types.
+//
+const ENTITY_TYPE_CATEGORY: Record<string, { name: string; slug: string; description: string }> = {
+  livestock: {
+    name:        "Livestock",
+    slug:        "livestock",
+    description: "Farm animals available for sale",
+  },
+  crop: {
+    name:        "Crops",
+    slug:        "crops",
+    description: "Agricultural produce and harvests",
+  },
+  inventory: {
+    name:        "Farm Supplies",
+    slug:        "farm-supplies",
+    description: "Farm equipment and supply items",
+  },
+};
+
+// Fallback for unknown entity types
+const DEFAULT_CATEGORY = {
+  name:        "Marketplace",
+  slug:        "marketplace",
+  description: "Items from the farm marketplace",
+};
+
+// ─── In-memory category cache (slug → integer id) ─────────────────────────────
+// Avoids hitting the DB on every product during a sync run.
+const categoryCache = new Map<string, number>();
 
 /**
- * Convert an ERM currency code to the slug expected by the e-commerce site.
- * Extend this map as needed.
+ * Look up or create an e-commerce category for the given ERM entity_type.
+ * Returns the integer category id.
  */
-function currencyToCategory(currency: string, entityType: string): string {
-  const entityMap: Record<string, string> = {
-    livestock: "livestock",
-    crop:      "crops",
-    inventory: "farm-supplies",
-  };
-  return entityMap[entityType] ?? "marketplace";
+async function getOrCreateCategoryId(entityType: string): Promise<number> {
+  const def = ENTITY_TYPE_CATEGORY[entityType] ?? DEFAULT_CATEGORY;
+
+  // Return from cache if we already resolved this slug
+  if (categoryCache.has(def.slug)) {
+    return categoryCache.get(def.slug)!;
+  }
+
+  // Try to find existing category by slug
+  const [existing] = await db
+    .select()
+    .from(categories)
+    .where(eq(categories.slug, def.slug));
+
+  if (existing) {
+    categoryCache.set(def.slug, existing.id);
+    return existing.id;
+  }
+
+  // Category doesn't exist yet — create it
+  const [created] = await db
+    .insert(categories)
+    .values({
+      name:        def.name,
+      slug:        def.slug,
+      description: def.description,
+      imageUrl:    null,
+    })
+    .returning();
+
+  console.log(`[ERM Sync] ✅ Created category "${def.name}" (id=${created.id})`);
+  categoryCache.set(def.slug, created.id);
+  return created.id;
 }
 
+// ─── Image URL helper ─────────────────────────────────────────────────────────
+
 /**
- * Build a URL-safe slug from a title + UUID fragment so it is always unique.
+ * ERM sends image_url as a plain string (or null/undefined).
+ * The e-commerce products.images column is a string[] (jsonb array).
+ *
+ * This function:
+ *  - Returns [] if image_url is missing or blank
+ *  - Validates the string is a real URL before wrapping it
+ *  - Returns [image_url] if valid
  */
+function buildImagesArray(imageUrl?: string | null): string[] {
+  if (!imageUrl || imageUrl.trim() === "") return [];
+
+  try {
+    const parsed = new URL(imageUrl.trim());
+    // Only allow http/https URLs
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return [];
+    return [imageUrl.trim()];
+  } catch {
+    console.warn(`[ERM Sync] ⚠️  Skipping invalid image URL: ${imageUrl}`);
+    return [];
+  }
+}
+
+// ─── Slug builder ─────────────────────────────────────────────────────────────
+
 function buildSlug(title: string, uuid: string): string {
   const base = title
     .toLowerCase()
@@ -110,37 +177,12 @@ function buildSlug(title: string, uuid: string): string {
   return `${base}-${uuid.slice(0, 8)}`;
 }
 
-/**
- * Map ERM listing fields → e-commerce InsertProduct shape.
- */
-function ermListingToProduct(listing: ERMMarketplaceListing) {
-  return {
-    name:         listing.title,
-    slug:         buildSlug(listing.title, listing.id),
-    description:  listing.description ?? "",
-    price:        listing.price.toFixed(2),
-    images:       listing.image_url ? [listing.image_url] : [],
-    sizes:        [] as string[],
-    colors:       [] as string[],
-    stock:        listing.status === "active" ? 999 : 0,
-    featured:     false,
-    active:       listing.status === "active",
-    status:       listing.status === "active" ? "active" : "inactive",
-    // Store ERM UUID here so admins can see the source
-    supplierUrl:  `${ERM_BASE_URL}/api/v1/external/marketplace/${listing.id}`,
-  } as const;
-}
-
 // ─── Fetch helpers ────────────────────────────────────────────────────────────
 
-async function fetchERMPage(
-  offset: number,
-  limit = 100,
-): Promise<ERMPublicResponse> {
+async function fetchERMPage(offset: number, limit = 100): Promise<ERMPublicResponse> {
   const url = `${ERM_MARKETPLACE_ENDPOINT}?status=active&limit=${limit}&offset=${offset}`;
   const res = await fetch(url, {
     headers: { Accept: "application/json" },
-    // 10-second timeout (Node 18+ AbortSignal)
     signal: AbortSignal.timeout(10_000),
   });
 
@@ -151,7 +193,6 @@ async function fetchERMPage(
   return res.json() as Promise<ERMPublicResponse>;
 }
 
-/** Fetch ALL active ERM listings (handles pagination automatically). */
 async function fetchAllERMListings(): Promise<ERMMarketplaceListing[]> {
   const all: ERMMarketplaceListing[] = [];
   let offset = 0;
@@ -172,18 +213,16 @@ async function fetchAllERMListings(): Promise<ERMMarketplaceListing[]> {
 
 // ─── Main sync function ───────────────────────────────────────────────────────
 
-/**
- * Pull all active listings from ERM and upsert them into the e-commerce DB.
- *
- * Returns a summary of what changed.
- */
 export async function syncMarketplaceProducts(): Promise<{
-  created: number;
-  updated: number;
+  created:     number;
+  updated:     number;
   deactivated: number;
-  errors: string[];
+  errors:      string[];
 }> {
   const summary = { created: 0, updated: 0, deactivated: 0, errors: [] as string[] };
+
+  // Clear category cache at start of each sync so stale data is not used
+  categoryCache.clear();
 
   // 1. Fetch all active ERM listings
   let ermListings: ERMMarketplaceListing[];
@@ -194,16 +233,14 @@ export async function syncMarketplaceProducts(): Promise<{
     return summary;
   }
 
-  console.log(`[ERM Sync] Fetched ${ermListings.length} active listings`);
+  console.log(`[ERM Sync] Fetched ${ermListings.length} active listings from ERM`);
 
-  // 2. Load existing mappings (marketplace_id → product_id)
+  // 2. Load existing mappings
   const existingMaps = await db.select().from(marketplaceProductMap);
-  const mapByMarketplaceId = new Map(
-    existingMaps.map((m) => [m.marketplaceId, m]),
-  );
+  const mapByMarketplaceId = new Map(existingMaps.map((m) => [m.marketplaceId, m]));
   const activeERMIds = new Set(ermListings.map((l) => l.id));
 
-  // 3. Deactivate products whose ERM listing is no longer active
+  // 3. Deactivate products whose ERM listing is gone
   for (const mapping of existingMaps) {
     if (!activeERMIds.has(mapping.marketplaceId)) {
       try {
@@ -213,9 +250,7 @@ export async function syncMarketplaceProducts(): Promise<{
         });
         summary.deactivated++;
       } catch (err: any) {
-        summary.errors.push(
-          `Deactivate product ${mapping.productId}: ${err.message}`,
-        );
+        summary.errors.push(`Deactivate product ${mapping.productId}: ${err.message}`);
       }
     }
   }
@@ -223,34 +258,61 @@ export async function syncMarketplaceProducts(): Promise<{
   // 4. Create or update products
   for (const listing of ermListings) {
     try {
-      const productData = ermListingToProduct(listing);
+      // ── FIX 1: Resolve category id from entity_type ──────────────────────
+      const categoryId = await getOrCreateCategoryId(listing.entity_type);
+
+      // ── FIX 2: Build images array from single image_url string ───────────
+      const images = buildImagesArray(listing.image_url);
+
+      const productData = {
+        name:        listing.title,
+        slug:        buildSlug(listing.title, listing.id),
+        description: listing.description ?? "",
+        price:       listing.price.toFixed(2),
+        categoryId,          // ← integer, properly set now
+        images,              // ← string[], properly set now
+        sizes:       [] as string[],
+        colors:      [] as string[],
+        // Use quantity from ERM if provided, otherwise default to 1.
+        // Never use 999 — a farmer listing 1 cow has stock of 1, not 999.
+        stock:       listing.status === "active" ? (listing.quantity ?? 1) : 0,
+        featured:    false,
+        active:      listing.status === "active",
+        status:      listing.status === "active" ? "active" : "inactive",
+        supplierUrl: `${ERM_BASE_URL}/api/v1/external/marketplace/${listing.id}`,
+      };
+
       const existing = mapByMarketplaceId.get(listing.id);
 
       if (existing) {
-        // Update existing product (price/stock/status may have changed)
+        // Update — refresh price, images, stock, category
         await storage.updateProduct(existing.productId, {
           name:        productData.name,
           description: productData.description,
           price:       productData.price,
-          images:      productData.images as string[],
+          categoryId:  productData.categoryId,
+          images:      productData.images,
           stock:       productData.stock,
           active:      productData.active,
           status:      productData.status,
           supplierUrl: productData.supplierUrl,
         });
 
-        // Refresh sync timestamp
         await db
           .update(marketplaceProductMap)
           .set({ lastSyncedAt: new Date() })
           .where(eq(marketplaceProductMap.marketplaceId, listing.id));
 
         summary.updated++;
+
+        console.log(
+          `[ERM Sync] ↻  Updated product id=${existing.productId} ` +
+          `"${listing.title}" | images=${productData.images.length} | categoryId=${categoryId}`,
+        );
       } else {
         // Create new product
         const newProduct = await storage.createProduct(productData as any);
 
-        // Record the UUID → integer mapping
         await db.insert(marketplaceProductMap).values({
           productId:     newProduct.id,
           marketplaceId: listing.id,
@@ -260,9 +322,15 @@ export async function syncMarketplaceProducts(): Promise<{
         });
 
         summary.created++;
+
+        console.log(
+          `[ERM Sync] ＋ Created product id=${newProduct.id} ` +
+          `"${listing.title}" | images=${productData.images.length} | categoryId=${categoryId}`,
+        );
       }
     } catch (err: any) {
-      summary.errors.push(`Listing ${listing.id}: ${err.message}`);
+      summary.errors.push(`Listing ${listing.id} ("${listing.title}"): ${err.message}`);
+      console.error(`[ERM Sync] ❌ Error processing listing ${listing.id}:`, err.message);
     }
   }
 
@@ -276,10 +344,6 @@ export async function syncMarketplaceProducts(): Promise<{
 
 // ─── Lookup helper used by order notification ─────────────────────────────────
 
-/**
- * Given an e-commerce integer product ID, return the ERM marketplace UUID.
- * Returns null if the product was not imported from ERM.
- */
 export async function getERMIdForProduct(
   productId: number,
 ): Promise<{ marketplaceId: string; farmId: string | null } | null> {
