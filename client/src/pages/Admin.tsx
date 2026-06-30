@@ -62,7 +62,7 @@ const productSchema = z.object({
 });
 
 const orderStatusSchema = z.object({
-  status: z.enum(["pending", "processing", "shipped", "delivered", "cancelled"]),
+  status: z.enum(["awaiting_confirmation", "confirmed", "pending", "processing", "shipped", "delivered", "cancelled"]),
 });
 
 const messageStatusSchema = z.object({
@@ -305,6 +305,26 @@ export default function Admin() {
         description: error.message || "Failed to update order status.",
         variant: "destructive",
       });
+    },
+  });
+
+  // Quick confirm / reject for farm reservations
+  const confirmReservationMutation = useMutation({
+    mutationFn: async ({ id, action }: { id: number; action: "confirmed" | "cancelled" }) => {
+      await apiRequest("PUT", `/api/orders/${id}/status`, { status: action });
+    },
+    onSuccess: (_, { action }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
+      toast({
+        title: action === "confirmed" ? "Reservation confirmed" : "Reservation rejected",
+        description: action === "confirmed"
+          ? "Customer has been notified via WhatsApp."
+          : "Reservation has been cancelled and customer notified.",
+      });
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: (error as Error).message, variant: "destructive" });
     },
   });
 
@@ -1182,29 +1202,72 @@ export default function Admin() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {orders.map((order: Order) => (
-                      <TableRow key={order.id}>
+                    {orders.map((order: Order) => {
+                      const isReservation = order.status === "awaiting_confirmation";
+                      return (
+                      <TableRow key={order.id} className={isReservation ? "bg-amber-50 border-l-4 border-l-amber-400" : ""}>
                         <TableCell>#{order.id}</TableCell>
                         <TableCell>
                           <div>
                             <div className="font-medium">{order.firstName} {order.lastName}</div>
                             <div className="text-sm text-gray-500">{order.email}</div>
+                            {(order as any).phone && <div className="text-xs text-gray-400">{(order as any).phone}</div>}
                           </div>
                         </TableCell>
-                        <TableCell>${order.total}</TableCell>
                         <TableCell>
-                          <Badge variant={order.status === "pending" ? "secondary" : "outline"}>
-                            {order.status}
+                          <div>
+                            <div>${order.total}</div>
+                            {(order as any).depositAmount && (
+                              <div className="text-xs text-amber-600">
+                                Deposit: ${(order as any).depositAmount}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={
+                              order.status === "pending" ? "secondary"
+                              : order.status === "awaiting_confirmation" ? "outline"
+                              : "outline"
+                            }
+                            className={
+                              order.status === "awaiting_confirmation" ? "border-amber-500 text-amber-700 bg-amber-50"
+                              : order.status === "confirmed" ? "border-green-500 text-green-700"
+                              : order.status === "cancelled" ? "border-red-400 text-red-600"
+                              : order.status === "delivered" ? "border-blue-500 text-blue-700"
+                              : ""
+                            }
+                          >
+                            {order.status === "awaiting_confirmation" ? "⏳ Awaiting Confirmation" : order.status}
                           </Badge>
                         </TableCell>
                         <TableCell>
                           {new Date(order.createdAt!).toLocaleDateString()}
                         </TableCell>
                         <TableCell>
-                          <div className="flex space-x-2">
-                            <Button size="sm" variant="outline">
-                              <Eye className="h-4 w-4" />
-                            </Button>
+                          <div className="flex flex-wrap gap-1">
+                            {isReservation && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  className="bg-green-600 hover:bg-green-700 text-white text-xs px-2"
+                                  disabled={confirmReservationMutation.isPending}
+                                  onClick={() => confirmReservationMutation.mutate({ id: order.id, action: "confirmed" })}
+                                >
+                                  Confirm
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  className="text-xs px-2"
+                                  disabled={confirmReservationMutation.isPending}
+                                  onClick={() => confirmReservationMutation.mutate({ id: order.id, action: "cancelled" })}
+                                >
+                                  Reject
+                                </Button>
+                              </>
+                            )}
                             <Dialog open={isOrderDialogOpen} onOpenChange={setIsOrderDialogOpen}>
                               <DialogTrigger asChild>
                                 <Button size="sm" variant="outline" onClick={() => handleEditOrder(order)}>
@@ -1230,6 +1293,8 @@ export default function Admin() {
                                               </SelectTrigger>
                                             </FormControl>
                                             <SelectContent>
+                                              <SelectItem value="awaiting_confirmation">Awaiting Confirmation</SelectItem>
+                                              <SelectItem value="confirmed">Confirmed</SelectItem>
                                               <SelectItem value="pending">Pending</SelectItem>
                                               <SelectItem value="processing">Processing</SelectItem>
                                               <SelectItem value="shipped">Shipped</SelectItem>
@@ -1254,7 +1319,8 @@ export default function Admin() {
                           </div>
                         </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </CardContent>

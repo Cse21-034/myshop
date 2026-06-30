@@ -18,7 +18,7 @@ import {
 } from "./schema";
 import { z } from "zod";
 import csurf from "csurf";
-import { sendWhatsAppMessage } from "./twilio";
+import { sendWhatsAppMessage, sendReservationStatusToCustomer } from "./twilio";
 
 // ── ERM Marketplace Integration ───────────────────────────────────────────────
 import { syncMarketplaceProducts } from "./marketplace-sync.service";
@@ -600,6 +600,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const updatedOrder = await storage.updateOrderStatus(id, status);
+
+      // Notify customer via WhatsApp when a farm reservation is confirmed or cancelled
+      if (status === "confirmed" || status === "cancelled") {
+        const items = await storage.getOrderItemsByOrderId(id);
+        sendReservationStatusToCustomer({ ...updatedOrder, items }, status === "confirmed").catch((err) =>
+          console.error("[Twilio] Customer notification failed:", err)
+        );
+      }
+
       res.json(updatedOrder);
     } catch (error) {
       console.error("Error updating order status:", error);

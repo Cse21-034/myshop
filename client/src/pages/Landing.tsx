@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,8 +11,17 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import type { Product, Category } from "@shared/schema";
 
+const AuthModal = lazy(() => import("@/components/AuthModal"));
+
 export default function Landing() {
   const queryClient = useQueryClient();
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authTab, setAuthTab] = useState<"login" | "register">("login");
+
+  function openAuth(tab: "login" | "register") {
+    setAuthTab(tab);
+    setAuthModalOpen(true);
+  }
 
   // Fetch featured products
   const { data: featuredProducts = [], error: productsError } = useQuery({
@@ -68,16 +77,14 @@ export default function Landing() {
                 >
                   <Link href="/shop">Shop Now</Link>
                 </Button>
-                <Button 
+                <Button
                   size="lg"
                   variant="outline"
                   className="text-white border-white hover:bg-white hover:text-black px-6 py-2 sm:px-8 sm:py-3 h-10 sm:h-12 text-sm sm:text-base"
-                  asChild
+                  onClick={() => openAuth("login")}
                 >
-                  <a href={`${BASE_URL}/auth/google`}>
-                    <span className="hidden sm:inline">Sign In to Shop</span>
-                    <span className="sm:hidden">Sign In</span>
-                  </a>
+                  <span className="hidden sm:inline">Sign In to Shop</span>
+                  <span className="sm:hidden">Sign In</span>
                 </Button>
               </div>
             </div>
@@ -197,15 +204,13 @@ export default function Landing() {
             Join thousands of satisfied customers and discover your perfect style
           </p>
           <div className="flex flex-col sm:flex-row justify-center space-y-3 sm:space-y-0 sm:space-x-4">
-            <Button 
+            <Button
               size="lg"
               className="bg-secondary hover:bg-yellow-600 text-white px-6 py-2 sm:px-8 sm:py-3 h-10 sm:h-12 text-sm sm:text-base"
-              asChild
+              onClick={() => openAuth("register")}
             >
-              <a href={`${BASE_URL}/auth/google`}>
-                <span className="hidden sm:inline">Create Account</span>
-                <span className="sm:hidden">Sign Up</span>
-              </a>
+              <span className="hidden sm:inline">Create Account</span>
+              <span className="sm:hidden">Sign Up</span>
             </Button>
             <Button 
               size="lg"
@@ -223,6 +228,10 @@ export default function Landing() {
       </section>
 
       <Footer />
+
+      <Suspense fallback={null}>
+        <AuthModal open={authModalOpen} onOpenChange={setAuthModalOpen} defaultTab={authTab} />
+      </Suspense>
     </div>
   );
 }

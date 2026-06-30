@@ -19,6 +19,26 @@ const convertToBWP = (usdString: string) => {
   return `P ${bwp.toLocaleString("en-BW", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
+export async function sendReservationStatusToCustomer(order: any, confirmed: boolean) {
+  const from = process.env.TWILIO_WHATSAPP_FROM;
+  if (!from || !order.phone) return;
+
+  const customerPhone = order.phone.startsWith("+") ? order.phone : `+${order.phone}`;
+  const depositBWP = order.depositAmount ? convertToBWP(order.depositAmount) : null;
+  const remainingBWP = order.remainingBalance ? convertToBWP(order.remainingBalance) : null;
+
+  const body = confirmed
+    ? `✅ *Reservation Confirmed!*\n\nHi ${order.firstName}, your reservation (Order #${order.id}) has been confirmed by the farm.\n\n${depositBWP ? `Deposit paid: ${depositBWP}\nRemaining balance due on collection: ${remainingBWP}\n\n` : ""}Please contact the farm to arrange collection.\nThank you for shopping with Fountstream!`
+    : `❌ *Reservation Cancelled*\n\nHi ${order.firstName}, unfortunately your reservation (Order #${order.id}) could not be confirmed by the farm.\n\nIf you paid a deposit, a refund will be processed shortly.\nSorry for the inconvenience — please contact us for more information.`;
+
+  try {
+    await client.messages.create({ from, to: `whatsapp:${customerPhone}`, body });
+    console.log(`[Twilio] Reservation ${confirmed ? "confirmation" : "rejection"} sent to customer ${customerPhone}`);
+  } catch (error) {
+    console.error("[Twilio] Failed to send customer reservation notification:", error);
+  }
+}
+
 export async function sendWhatsAppMessage(order: any) {
   const to = process.env.WHATSAPP_TO;
   const from = process.env.TWILIO_WHATSAPP_FROM;
