@@ -231,9 +231,9 @@ export const insertOrderSchema = createInsertSchema(orders).omit({
   paymentIntentId: z.string().optional(),
   paypalOrderId: z.string().optional(),
   orangeMoneyTransactionId: z.string().optional(),
-  fulfillmentType: z.enum(["pickup", "delivery"]).optional(),
-  depositAmount: z.string().optional(),
-  remainingBalance: z.string().optional(),
+  fulfillmentType: z.enum(["pickup", "delivery"]).nullish(),
+  depositAmount: z.string().nullish(),
+  remainingBalance: z.string().nullish(),
 });
 
 export const insertOrderItemSchema = createInsertSchema(orderItems).omit({
