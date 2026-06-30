@@ -134,7 +134,7 @@ export default function FarmProduct() {
   const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
   const { toast } = useToast();
-  const { addItem } = useCart();
+  const { addToCart } = useCart();
   const [activeImage, setActiveImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const [fulfillmentType, setFulfillmentType] = useState<"pickup" | "delivery">("pickup");
@@ -185,13 +185,13 @@ export default function FarmProduct() {
 
   function handleAddToCart() {
     if (outOfStock) return;
-    addItem({ productId: product.id, quantity });
+    addToCart(product.id, quantity);
     toast({ title: isReservation ? "Reserved!" : "Added to cart", description: product.name });
   }
 
   function handleBuyNow() {
     if (outOfStock) return;
-    addItem({ productId: product.id, quantity });
+    addToCart(product.id, quantity);
     navigate("/checkout");
   }
 
