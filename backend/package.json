@@ -10,7 +10,8 @@
     "check": "tsc",
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "db:deploy": "drizzle-kit push --force"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4",
