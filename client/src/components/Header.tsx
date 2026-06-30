@@ -276,8 +276,10 @@ export default function Header() {
                         <a href={`${backendURL}/auth/logout`} className="text-lg">Logout</a>
                       </>
                     ) : (
-                      <button onClick={() => { setAuthTab("login"); setAuthModalOpen(true); }} className="text-lg text-left">Sign In</button>
-                      <button onClick={() => { setAuthTab("register"); setAuthModalOpen(true); }} className="text-lg text-left">Create Account</button>
+                      <>
+                        <button onClick={() => { setAuthTab("login"); setAuthModalOpen(true); }} className="text-lg text-left">Sign In</button>
+                        <button onClick={() => { setAuthTab("register"); setAuthModalOpen(true); }} className="text-lg text-left">Create Account</button>
+                      </>
                     )}
                   </div>
                 </SheetContent>
