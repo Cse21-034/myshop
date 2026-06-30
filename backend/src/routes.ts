@@ -88,6 +88,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ERM callback — farm owner confirmed or rejected a reservation on the ERM side
+  app.post("/api/erm/order-status", async (req: Request, res: Response) => {
+    const secret = req.headers["x-ecommerce-secret"];
+    if (!secret || secret !== process.env.ERM_WEBHOOK_SECRET) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    try {
+      const { ecommerce_order_id, status } = req.body;
+      if (!ecommerce_order_id || !["confirmed", "cancelled"].includes(status)) {
+        return res.status(400).json({ message: "ecommerce_order_id and status (confirmed|cancelled) are required" });
+      }
+      const order = await storage.getOrder(Number(ecommerce_order_id));
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      const updatedOrder = await storage.updateOrderStatus(Number(ecommerce_order_id), status);
+      const items = await storage.getOrderItemsByOrderId(Number(ecommerce_order_id));
+      sendReservationStatusToCustomer({ ...updatedOrder, items }, status === "confirmed").catch((err) =>
+        console.error("[ERM Order Status] WhatsApp notification failed:", err)
+      );
+      console.log(`[ERM Order Status] Order #${ecommerce_order_id} → ${status}`);
+      res.json({ success: true, order_id: ecommerce_order_id, status });
+    } catch (error) {
+      console.error("[ERM Order Status] Error:", error);
+      res.status(500).json({ message: "Failed to update order status" });
+    }
+  });
+
   // ==========================================================================
   // AUTH ROUTES
   // ==========================================================================
