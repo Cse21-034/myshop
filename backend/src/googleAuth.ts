@@ -119,10 +119,9 @@ export function setupGoogleAuth(app: Express) {
   app.use(passport.initialize());
   app.use(passport.session());
 
-  const callbackURL =
-    process.env.NODE_ENV === "production"
-      ? "https://myshop-test-backend.onrender.com/auth/google/callback"
-      : "http://localhost:5000/auth/google/callback";
+  const frontendURL = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
+  const backendURL = (process.env.BACKEND_URL || "http://localhost:5000").replace(/\/$/, "");
+  const callbackURL = `${backendURL}/auth/google/callback`;
 
   passport.use(
     new GoogleStrategy(
@@ -230,7 +229,7 @@ export function setupGoogleAuth(app: Express) {
   app.get(
     "/auth/google/callback",
     passport.authenticate("google", {
-      failureRedirect: "https://fountstream.com/?login=failed",
+      failureRedirect: `${frontendURL}/?login=failed`,
     }),
     async (req, res) => {
       console.log("🔐 Auth callback - User:", req.user);
@@ -300,11 +299,11 @@ export function setupGoogleAuth(app: Express) {
         console.log("🔐 New CSRF token:", csrfToken);
 
         res.redirect(
-          `https://fountstream.com/?login=success&token=${encodeURIComponent(token)}&refreshToken=${encodeURIComponent(refreshToken)}&csrfToken=${encodeURIComponent(csrfToken)}`
+          `${frontendURL}/?login=success&token=${encodeURIComponent(token)}&refreshToken=${encodeURIComponent(refreshToken)}&csrfToken=${encodeURIComponent(csrfToken)}`
         );
       } catch (error) {
         console.error("❌ Auth callback error:", error);
-        res.redirect("https://fountstream.com/?login=error");
+        res.redirect(`${frontendURL}/?login=error`);
       }
     }
   );
@@ -320,7 +319,7 @@ export function setupGoogleAuth(app: Express) {
           await redisClient?.del?.(`refresh:${(req.user as any)?.id}`);
           await redisClient?.del?.(`user:${(req.user as any)?.id}`); // Clear user cache
         }
-        res.redirect("https://fountstream.com/?logout=success");
+        res.redirect(`${frontendURL}/?logout=success`);
       });
     });
   });
