@@ -1,5 +1,6 @@
 // src/components/Header.tsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
+const AuthModal = lazy(() => import("./AuthModal"));
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,6 +36,8 @@ export default function Header() {
   const [location] = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authTab, setAuthTab] = useState<"login" | "register">("login");
   const { user, isAuthenticated } = useAuth();
   const { itemCount } = useCart();
   const { theme, toggleTheme } = useTheme();
@@ -204,8 +207,11 @@ export default function Header() {
                     </>
                   ) : (
                     <>
-                      <DropdownMenuItem>
-                        <a href={`${backendURL}/auth/google?sessionId=${sessionId}`}>Login with Google</a>
+                      <DropdownMenuItem onSelect={() => { setAuthTab("login"); setAuthModalOpen(true); }}>
+                        Sign In
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => { setAuthTab("register"); setAuthModalOpen(true); }}>
+                        Create Account
                       </DropdownMenuItem>
                     </>
                   )}
@@ -270,7 +276,8 @@ export default function Header() {
                         <a href={`${backendURL}/auth/logout`} className="text-lg">Logout</a>
                       </>
                     ) : (
-                      <a href={`${backendURL}/auth/google?sessionId=${sessionId}`} className="text-lg">Login with Google</a>
+                      <button onClick={() => { setAuthTab("login"); setAuthModalOpen(true); }} className="text-lg text-left">Sign In</button>
+                      <button onClick={() => { setAuthTab("register"); setAuthModalOpen(true); }} className="text-lg text-left">Create Account</button>
                     )}
                   </div>
                 </SheetContent>
@@ -281,6 +288,9 @@ export default function Header() {
       </header>
 
       <CartDrawer isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} />
+      <Suspense fallback={null}>
+        <AuthModal open={authModalOpen} onOpenChange={setAuthModalOpen} defaultTab={authTab} />
+      </Suspense>
     </>
   );
 }

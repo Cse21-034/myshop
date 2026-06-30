@@ -5,6 +5,9 @@ async function migrate() {
   console.log("[Migrate] Running database migrations...");
 
   const migrations = [
+    // Users — email/password auth
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash varchar`,
+
     // Products — farm marketplace columns
     `ALTER TABLE products ADD COLUMN IF NOT EXISTS image_urls jsonb DEFAULT '[]'`,
     `ALTER TABLE products ADD COLUMN IF NOT EXISTS entity_type varchar`,

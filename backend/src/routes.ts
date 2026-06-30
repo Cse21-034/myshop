@@ -92,6 +92,94 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // AUTH ROUTES
   // ==========================================================================
 
+  app.post("/api/auth/register", async (req: Request, res: Response) => {
+    try {
+      const { email, password, firstName, lastName } = req.body;
+      if (!email || !password || !firstName) {
+        return res.status(400).json({ message: "Email, password and first name are required" });
+      }
+      if (password.length < 8) {
+        return res.status(400).json({ message: "Password must be at least 8 characters" });
+      }
+
+      const existing = await storage.getUserByEmail(email);
+      if (existing) {
+        if (!existing.passwordHash) {
+          return res.status(409).json({
+            message: "This email is linked to a Google account. Please sign in with Google.",
+            code: "USE_GOOGLE",
+          });
+        }
+        return res.status(409).json({ message: "Email already registered", code: "EMAIL_EXISTS" });
+      }
+
+      const bcrypt = await import("bcryptjs");
+      const passwordHash = await bcrypt.hash(password, 12);
+      const { randomUUID } = await import("crypto");
+
+      const user = await storage.upsertUser({
+        id: randomUUID(),
+        email,
+        firstName,
+        lastName: lastName || null,
+        profileImageUrl: null,
+        passwordHash,
+      });
+
+      const jwt = await import("jsonwebtoken");
+      const token = jwt.default.sign(
+        { id: user.id, email: user.email, isAdmin: user.isAdmin },
+        process.env.JWT_SECRET!,
+        { expiresIn: "1h" }
+      );
+      const refreshToken = jwt.default.sign({ id: user.id }, process.env.JWT_SECRET!, { expiresIn: "7d" });
+
+      res.status(201).json({ token, refreshToken, user: { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, isAdmin: user.isAdmin } });
+    } catch (error) {
+      console.error("Register error:", error);
+      res.status(500).json({ message: "Registration failed" });
+    }
+  });
+
+  app.post("/api/auth/login", async (req: Request, res: Response) => {
+    try {
+      const { email, password } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ message: "Email and password are required" });
+      }
+
+      const user = await storage.getUserByEmail(email);
+      if (!user) {
+        return res.status(401).json({ message: "Invalid email or password" });
+      }
+      if (!user.passwordHash) {
+        return res.status(401).json({
+          message: "This account uses Google sign-in. Please log in with Google.",
+          code: "USE_GOOGLE",
+        });
+      }
+
+      const bcrypt = await import("bcryptjs");
+      const valid = await bcrypt.compare(password, user.passwordHash);
+      if (!valid) {
+        return res.status(401).json({ message: "Invalid email or password" });
+      }
+
+      const jwt = await import("jsonwebtoken");
+      const token = jwt.default.sign(
+        { id: user.id, email: user.email, isAdmin: user.isAdmin },
+        process.env.JWT_SECRET!,
+        { expiresIn: "1h" }
+      );
+      const refreshToken = jwt.default.sign({ id: user.id }, process.env.JWT_SECRET!, { expiresIn: "7d" });
+
+      res.json({ token, refreshToken, user: { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, isAdmin: user.isAdmin } });
+    } catch (error) {
+      console.error("Login error:", error);
+      res.status(500).json({ message: "Login failed" });
+    }
+  });
+
   app.get("/api/auth/user", async (req: Request, res: Response) => {
     try {
       const user = req.isAuthenticated() ? req.user : null;
