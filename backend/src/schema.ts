@@ -36,7 +36,7 @@ export const categories = pgTable("categories", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Products table - Enhanced with supplier URL
+// Products table - Enhanced with supplier URL and farm marketplace fields
 export const products = pgTable("products", {
   id: serial("id").primaryKey(),
   name: varchar("name", { length: 255 }).notNull(),
@@ -46,13 +46,23 @@ export const products = pgTable("products", {
   originalPrice: decimal("original_price", { precision: 10, scale: 2 }),
   categoryId: integer("category_id").references(() => categories.id),
   images: jsonb("images").$type<string[]>().default([]),
+  imageUrls: jsonb("image_urls").$type<string[]>().default([]),
   sizes: jsonb("sizes").$type<string[]>().default([]),
   colors: jsonb("colors").$type<string[]>().default([]),
   stock: integer("stock").default(0),
   featured: boolean("featured").default(false),
   active: boolean("active").default(true),
   status: varchar("status").default("active"), // active, inactive, sold, out_of_stock
-  supplierUrl: varchar("supplier_url"), // New field for supplier URL
+  supplierUrl: varchar("supplier_url"),
+  // Farm marketplace fields
+  entityType: varchar("entity_type"),       // livestock | crop | poultry | inventory | null for regular products
+  entityDetails: jsonb("entity_details"),   // entity-specific details object
+  farmName: varchar("farm_name"),
+  farmDistrict: varchar("farm_district"),
+  farmContact: varchar("farm_contact"),
+  unit: varchar("unit").default("per piece"),
+  allowsDelivery: boolean("allows_delivery").default(false),
+  depositPercent: integer("deposit_percent").default(0),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -70,14 +80,18 @@ export const orders = pgTable("orders", {
   state: varchar("state").notNull(),
   zipCode: varchar("zip_code").notNull(),
   paymentMethod: varchar("payment_method").notNull(),
-  paymentIntentId: varchar("payment_intent_id"), // Added for Stripe
-  paypalOrderId: varchar("paypal_order_id"), // Added for PayPal
-  orangeMoneyTransactionId: varchar("orange_money_transaction_id"), // Added for Orange Money
+  paymentIntentId: varchar("payment_intent_id"),
+  paypalOrderId: varchar("paypal_order_id"),
+  orangeMoneyTransactionId: varchar("orange_money_transaction_id"),
   subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
   shipping: decimal("shipping", { precision: 10, scale: 2 }).notNull(),
   tax: decimal("tax", { precision: 10, scale: 2 }).notNull(),
   total: decimal("total", { precision: 10, scale: 2 }).notNull(),
   status: varchar("status").default("pending"),
+  // Farm marketplace fields
+  fulfillmentType: varchar("fulfillment_type"),              // pickup | delivery
+  depositAmount: decimal("deposit_amount", { precision: 10, scale: 2 }),
+  remainingBalance: decimal("remaining_balance", { precision: 10, scale: 2 }),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -210,9 +224,12 @@ export const insertOrderSchema = createInsertSchema(orders).omit({
   id: true,
   createdAt: true,
 }).extend({
-  paymentIntentId: z.string().optional(), // Added for Stripe
-  paypalOrderId: z.string().optional(), // Added for PayPal
-  orangeMoneyTransactionId: z.string().optional(), // Added for Orange Money
+  paymentIntentId: z.string().optional(),
+  paypalOrderId: z.string().optional(),
+  orangeMoneyTransactionId: z.string().optional(),
+  fulfillmentType: z.enum(["pickup", "delivery"]).optional(),
+  depositAmount: z.string().optional(),
+  remainingBalance: z.string().optional(),
 });
 
 export const insertOrderItemSchema = createInsertSchema(orderItems).omit({

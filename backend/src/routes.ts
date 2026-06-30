@@ -3,9 +3,9 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { isAuthenticated } from "./googleAuth";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "./db";
-import { contactMessages } from "./schema";
+import { contactMessages, products } from "./schema";
 import { createStripePaymentIntent, initiateOrangeMoneyPayment } from "./payment";
 import { createPayPalOrder, capturePayPalOrder } from "./paypal-service";
 import {
@@ -404,18 +404,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.isAuthenticated() ? (req.user as any).id : undefined;
       const sessionId = req.sessionID;
-      const { orderData, items } = req.body;
-      const orderWithUser = { ...orderData, userId };
+      const { orderData, items, fulfillmentType } = req.body;
+
+      // Calculate deposit if any item belongs to a farm product with depositPercent > 0
+      let depositAmount: number | undefined;
+      let remainingBalance: number | undefined;
+      let orderStatus = "pending";
+
+      const total = parseFloat(orderData.total);
+      const productIds: number[] = items.map((i: any) => i.productId).filter(Boolean);
+
+      if (productIds.length > 0) {
+        const farmProducts = await db
+          .select({ id: products.id, depositPercent: products.depositPercent })
+          .from(products)
+          .where(sql`${products.id} = ANY(ARRAY[${sql.join(productIds.map((id: number) => sql`${id}`), sql`, `)}]::int[])`);
+
+        const maxDeposit = Math.max(...farmProducts.map(p => p.depositPercent ?? 0), 0);
+        if (maxDeposit > 0) {
+          depositAmount = parseFloat((total * maxDeposit / 100).toFixed(2));
+          remainingBalance = parseFloat((total - depositAmount).toFixed(2));
+          orderStatus = "awaiting_confirmation";
+        }
+      }
+
+      const orderWithUser = {
+        ...orderData,
+        userId,
+        fulfillmentType: fulfillmentType ?? null,
+        depositAmount: depositAmount !== undefined ? depositAmount.toFixed(2) : null,
+        remainingBalance: remainingBalance !== undefined ? remainingBalance.toFixed(2) : null,
+        status: orderStatus,
+      };
+
       const validatedOrder = insertOrderSchema.parse(orderWithUser);
       const order = await storage.createOrder(validatedOrder, items);
 
-      // Clear cart
       await storage.clearCart(userId, sessionId);
-
-      // Send WhatsApp notification
       await sendWhatsAppMessage({ ...order, items });
-
-      // Notify ERM of any items sourced from the marketplace (non-blocking)
       notifyERMOfOrder(order, items).catch((err) =>
         console.error("[ERM Notify] Background notification failed:", err),
       );

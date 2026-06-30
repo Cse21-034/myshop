@@ -254,14 +254,22 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createProduct(product: InsertProduct): Promise<Product> {
-    // Ensure arrays are properly handled
     const productData = {
       ...product,
       images: product.images || [],
+      imageUrls: (product as any).imageUrls || [],
       sizes: product.sizes || [],
       colors: product.colors || [],
       status: product.status || 'active',
       supplierUrl: product.supplierUrl || null,
+      entityType: (product as any).entityType || null,
+      entityDetails: (product as any).entityDetails || null,
+      farmName: (product as any).farmName || null,
+      farmDistrict: (product as any).farmDistrict || null,
+      farmContact: (product as any).farmContact || null,
+      unit: (product as any).unit || 'per piece',
+      allowsDelivery: (product as any).allowsDelivery ?? false,
+      depositPercent: (product as any).depositPercent ?? 0,
     };
 
     const [newProduct] = await db.insert(products).values(productData).returning();
@@ -269,35 +277,29 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateProduct(id: number, product: Partial<InsertProduct>): Promise<Product> {
-    // Handle array fields properly during updates
-    const updateData = {
-      ...product,
-      updatedAt: new Date(),
-    };
+    const updateData: any = { ...product, updatedAt: new Date() };
 
-    // If arrays are provided, ensure they're properly formatted
-    if (product.images !== undefined) {
-      updateData.images = product.images;
-    }
-    if (product.sizes !== undefined) {
-      updateData.sizes = product.sizes;
-    }
-    if (product.colors !== undefined) {
-      updateData.colors = product.colors;
-    }
-    if (product.status !== undefined) {
-      updateData.status = product.status;
-    }
-    if (product.supplierUrl !== undefined) {
-      updateData.supplierUrl = product.supplierUrl || null;
-    }
+    if (product.images !== undefined) updateData.images = product.images;
+    if ((product as any).imageUrls !== undefined) updateData.imageUrls = (product as any).imageUrls;
+    if (product.sizes !== undefined) updateData.sizes = product.sizes;
+    if (product.colors !== undefined) updateData.colors = product.colors;
+    if (product.status !== undefined) updateData.status = product.status;
+    if (product.supplierUrl !== undefined) updateData.supplierUrl = product.supplierUrl || null;
+    if ((product as any).entityType !== undefined) updateData.entityType = (product as any).entityType;
+    if ((product as any).entityDetails !== undefined) updateData.entityDetails = (product as any).entityDetails;
+    if ((product as any).farmName !== undefined) updateData.farmName = (product as any).farmName;
+    if ((product as any).farmDistrict !== undefined) updateData.farmDistrict = (product as any).farmDistrict;
+    if ((product as any).farmContact !== undefined) updateData.farmContact = (product as any).farmContact;
+    if ((product as any).unit !== undefined) updateData.unit = (product as any).unit;
+    if ((product as any).allowsDelivery !== undefined) updateData.allowsDelivery = (product as any).allowsDelivery;
+    if ((product as any).depositPercent !== undefined) updateData.depositPercent = (product as any).depositPercent;
 
     const [updatedProduct] = await db
       .update(products)
       .set(updateData)
       .where(eq(products.id, id))
       .returning();
-    
+
     return updatedProduct;
   }
 

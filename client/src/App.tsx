@@ -35,6 +35,8 @@ import Contact from "@/pages/Contact";
 import OrderConfirmation from "@/pages/OrderConfirmation";
 import Orders from "@/pages/Orders";
 import Profile from "@/pages/Profile";
+import FarmMarket from "@/pages/FarmMarket";
+import FarmProduct from "@/pages/FarmProduct";
 
 // Professional Loading Screen with consistent colors and mobile optimization
 function LoadingScreen() {
@@ -106,8 +108,10 @@ function Router() {
       <Route path="/orders" component={() => <ProtectedRoute component={Orders} />} />
      <Route path="/profile" component={() => <ProtectedRoute component={Profile} />} />
       <Route path="/about" component={About} />
-      <Route path="/contact" component={Contact} />   
-      <Route path="/order-confirmation" component={OrderConfirmation} />      
+      <Route path="/contact" component={Contact} />
+      <Route path="/farm-market" component={FarmMarket} />
+      <Route path="/farm-product/:id" component={FarmProduct} />
+      <Route path="/order-confirmation" component={OrderConfirmation} />
       <Route component={NotFound} />
     </Switch>
   );

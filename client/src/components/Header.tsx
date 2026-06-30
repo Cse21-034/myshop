@@ -119,6 +119,14 @@ export default function Header() {
                 </DropdownMenuContent>
               </DropdownMenu>
               <Link
+                href="/farm-market"
+                className={`text-gray-700 hover:text-primary transition-colors ${
+                  location === "/farm-market" ? "text-primary font-semibold" : ""
+                }`}
+              >
+                Farm Market
+              </Link>
+              <Link
                 href="/about"
                 className={`text-gray-700 hover:text-primary transition-colors ${
                   location === "/about" ? "text-primary font-semibold" : ""
@@ -238,6 +246,7 @@ export default function Header() {
                   <div className="flex flex-col space-y-4 mt-8">
                     <Link href="/" className="text-lg">Home</Link>
                     <Link href="/shop" className="text-lg">Shop</Link>
+                    <Link href="/farm-market" className="text-lg">Farm Market</Link>
                     <Link href="/about" className="text-lg">About</Link>
                     <Link href="/contact" className="text-lg">Contact</Link>
                     {isAuthenticated ? (
