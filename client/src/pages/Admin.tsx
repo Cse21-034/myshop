@@ -19,14 +19,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { BASE_URL } from "@/lib/queryClient";
-import { 
-  Package, 
-  ShoppingCart, 
-  Users, 
-  DollarSign, 
-  Mail, 
-  Plus, 
-  Edit, 
+import {
+  Package,
+  ShoppingCart,
+  Users,
+  DollarSign,
+  Mail,
+  Plus,
+  Edit,
   Trash2,
   Eye,
   X,
@@ -34,7 +34,11 @@ import {
   Image as ImageIcon,
   Link,
   Palette,
-  Ruler
+  Ruler,
+  RefreshCw,
+  CheckCircle2,
+  AlertCircle,
+  Tractor,
 } from "lucide-react";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -407,6 +411,43 @@ export default function Admin() {
     },
   });
 
+  // ERM marketplace sync
+  const { data: ermStatus, refetch: refetchErmStatus } = useQuery({
+    queryKey: ["/api/erm/status"],
+    queryFn: async () => {
+      const res = await fetch(`${BASE_URL}/api/erm/status`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch ERM status");
+      return res.json();
+    },
+    retry: false,
+  });
+
+  const [syncResult, setSyncResult] = useState<{ created: number; updated: number; deactivated: number } | null>(null);
+
+  const ermSyncMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/erm/sync");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      const s = data.summary ?? data;
+      setSyncResult({ created: s.created ?? 0, updated: s.updated ?? 0, deactivated: s.deactivated ?? 0 });
+      refetchErmStatus();
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      toast({
+        title: "ERM sync complete",
+        description: `Created ${s.created ?? 0}, updated ${s.updated ?? 0}, deactivated ${s.deactivated ?? 0} products.`,
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Sync failed",
+        description: (error as Error).message || "Could not sync from ERM.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const resetDialogStates = () => {
     setBulkImageUrls("");
     setNewSize("");
@@ -660,10 +701,11 @@ export default function Admin() {
 
         {/* Admin Tabs */}
         <Tabs defaultValue="products" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="products">Products</TabsTrigger>
             <TabsTrigger value="orders">Orders</TabsTrigger>
             <TabsTrigger value="messages">Messages</TabsTrigger>
+            <TabsTrigger value="farm-market">Farm Market</TabsTrigger>
           </TabsList>
 
           {/* Products Tab */}
@@ -1311,6 +1353,83 @@ export default function Admin() {
                 </Table>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* Farm Market Tab */}
+          <TabsContent value="farm-market">
+            <div className="space-y-6">
+              {/* Sync card */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Tractor className="h-5 w-5 text-green-600" />
+                    ERM Farm Marketplace Sync
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <p className="text-sm text-gray-600">
+                    Pull the latest listings from the ERM farm marketplace into the shop. New products are created, existing ones are updated, and sold-out listings are deactivated.
+                  </p>
+
+                  <Button
+                    onClick={() => ermSyncMutation.mutate()}
+                    disabled={ermSyncMutation.isPending}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    <RefreshCw className={`h-4 w-4 mr-2 ${ermSyncMutation.isPending ? "animate-spin" : ""}`} />
+                    {ermSyncMutation.isPending ? "Syncing…" : "Sync Now"}
+                  </Button>
+
+                  {/* Last sync result */}
+                  {syncResult && (
+                    <div className="flex items-start gap-2 rounded-lg bg-green-50 border border-green-200 p-4">
+                      <CheckCircle2 className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
+                      <div className="text-sm text-green-800 space-y-1">
+                        <p className="font-semibold">Last sync result</p>
+                        <div className="flex gap-4">
+                          <span><strong>{syncResult.created}</strong> created</span>
+                          <span><strong>{syncResult.updated}</strong> updated</span>
+                          <span><strong>{syncResult.deactivated}</strong> deactivated</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* ERM connection status */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">ERM Connection Status</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {ermStatus ? (
+                    <div className="space-y-3 text-sm">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="h-5 w-5 text-green-500" />
+                        <span className="font-medium text-gray-800">ERM API configured</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-gray-600">
+                        <span className="font-medium">API URL</span>
+                        <span className="truncate text-xs">{ermStatus.ermApiUrl}</span>
+                        <span className="font-medium">Auto-sync</span>
+                        <span>{ermStatus.autoSyncEnabled ? `Every ${ermStatus.syncIntervalMinutes} min` : "Disabled"}</span>
+                        <span className="font-medium">Order notifications</span>
+                        <span>{ermStatus.orderNotifyEnabled ? "Enabled" : "Disabled"}</span>
+                      </div>
+                      {!ermStatus.autoSyncEnabled && (
+                        <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
+                          <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                          <span>Auto-sync is off. Set <strong>ERM_AUTO_SYNC=true</strong> in your Render environment variables to enable it.</span>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">Loading ERM status…</p>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
         </Tabs>
       </div>
