@@ -20,6 +20,7 @@ async function migrate() {
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS fulfillment_type varchar`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS deposit_amount decimal(10,2)`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS remaining_balance decimal(10,2)`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS access_token varchar`,
   ];
 
   for (const statement of migrations) {

@@ -164,7 +164,8 @@ export default function Checkout() {
         description: "You will receive a confirmation email shortly.",
       });
       clearCart();
-      setLocation(`/order-confirmation?orderId=${orderResponse.id}`);
+      const tokenParam = orderResponse.accessToken ? `&token=${orderResponse.accessToken}` : "";
+      setLocation(`/order-confirmation?orderId=${orderResponse.id}${tokenParam}`);
     },
     onError: (error) => {
       toast({

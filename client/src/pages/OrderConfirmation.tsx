@@ -42,9 +42,10 @@ export default function OrderConfirmation() {
   const [loading, setLoading] = useState(true);
   const orderRef = useRef<HTMLDivElement>(null);
 
-  // Extract orderId from query string, e.g. ?orderId=123
+  // Extract orderId (and, for guests, the access token) from the query string
   const params = new URLSearchParams(window.location.search);
   const orderId = params.get("orderId");
+  const token = params.get("token");
 
   // Exchange rate USD to BWP (update as necessary)
   const USD_TO_BWP = 13.5;
@@ -65,7 +66,8 @@ export default function OrderConfirmation() {
 
     (async () => {
       try {
-        const response = await apiRequest("GET", `/api/orders/${orderId}`);
+        const url = token ? `/api/orders/${orderId}?token=${token}` : `/api/orders/${orderId}`;
+        const response = await apiRequest("GET", url);
         const orderData = await response.json();
         setOrder(orderData);
       } catch (error) {
@@ -74,7 +76,7 @@ export default function OrderConfirmation() {
         setLoading(false);
       }
     })();
-  }, [orderId]);
+  }, [orderId, token]);
 
   const downloadPDF = async () => {
     if (!orderRef.current) return;

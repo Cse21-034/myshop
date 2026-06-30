@@ -1,4 +1,5 @@
 // server/src/storage.ts
+import { randomUUID } from "crypto";
 import {
   users,
   categories,
@@ -508,6 +509,7 @@ export class DatabaseStorage implements IStorage {
         paymentIntentId: order.paymentIntentId,
         paypalOrderId: order.paypalOrderId,
         orangeMoneyTransactionId: order.orangeMoneyTransactionId,
+        accessToken: randomUUID(),
       })
       .returning();
 

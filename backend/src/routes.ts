@@ -465,7 +465,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/orders/:id", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/orders/:id", async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid order id" });
@@ -475,11 +475,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
       }
 
-      // Verify user owns order or is admin
-      const userId = (req.user as any).id;
-      const user = await storage.getUser(userId);
-      if (!user?.isAdmin && order.userId !== userId) {
-        return res.status(403).json({ message: "Access denied", code: "FORBIDDEN" });
+      // Logged-in users must own the order (or be admin). Guests must present
+      // the order's access token, issued at checkout, instead of a session.
+      if (req.isAuthenticated()) {
+        const userId = (req.user as any).id;
+        const user = await storage.getUser(userId);
+        if (!user?.isAdmin && order.userId !== userId) {
+          return res.status(403).json({ message: "Access denied", code: "FORBIDDEN" });
+        }
+      } else {
+        const token = req.query.token as string | undefined;
+        if (!token || token !== order.accessToken) {
+          return res.status(403).json({ message: "Access denied", code: "FORBIDDEN" });
+        }
       }
 
       // Fetch the order items

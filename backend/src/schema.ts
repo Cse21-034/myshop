@@ -92,6 +92,8 @@ export const orders = pgTable("orders", {
   fulfillmentType: varchar("fulfillment_type"),              // pickup | delivery
   depositAmount: decimal("deposit_amount", { precision: 10, scale: 2 }),
   remainingBalance: decimal("remaining_balance", { precision: 10, scale: 2 }),
+  // Lets guests view their own order confirmation without logging in
+  accessToken: varchar("access_token"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -223,6 +225,7 @@ export const insertProductSchema = createInsertSchema(products).omit({
 export const insertOrderSchema = createInsertSchema(orders).omit({
   id: true,
   createdAt: true,
+  accessToken: true,
 }).extend({
   paymentIntentId: z.string().optional(),
   paypalOrderId: z.string().optional(),
