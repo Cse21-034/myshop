@@ -328,6 +328,19 @@ export default function Admin() {
     },
   });
 
+  // Resend order notification to ERM
+  const resendToERMMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("POST", `/api/admin/orders/${id}/notify-erm`, {});
+    },
+    onSuccess: (_, id) => {
+      toast({ title: "Sent to ERM", description: `Order #${id} notification resent to ERM successfully.` });
+    },
+    onError: (error) => {
+      toast({ title: "Failed to resend", description: (error as Error).message, variant: "destructive" });
+    },
+  });
+
   // Delete order mutation
   const deleteOrderMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -1204,6 +1217,7 @@ export default function Admin() {
                   <TableBody>
                     {orders.map((order: Order) => {
                       const isReservation = order.status === "awaiting_confirmation";
+                      const isFarmOrder = !!order.fulfillmentType;
                       return (
                       <TableRow key={order.id} className={isReservation ? "bg-amber-50 border-l-4 border-l-amber-400" : ""}>
                         <TableCell>#{order.id}</TableCell>
@@ -1267,6 +1281,19 @@ export default function Admin() {
                                   Reject
                                 </Button>
                               </>
+                            )}
+                            {isFarmOrder && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-xs px-2 border-orange-400 text-orange-600 hover:bg-orange-50"
+                                disabled={resendToERMMutation.isPending}
+                                onClick={() => resendToERMMutation.mutate(order.id)}
+                                title="Resend this order notification to ERM"
+                              >
+                                <RefreshCw className="h-3 w-3 mr-1" />
+                                ERM
+                              </Button>
                             )}
                             <Dialog open={isOrderDialogOpen} onOpenChange={setIsOrderDialogOpen}>
                               <DialogTrigger asChild>

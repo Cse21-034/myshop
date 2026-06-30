@@ -88,6 +88,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin: resend an order notification to ERM (for orders that failed during the 401 period)
+  app.post("/api/admin/orders/:id/notify-erm", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      if (!user?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+      const orderId = Number(req.params.id);
+      const order = await storage.getOrder(orderId);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      const items = await storage.getOrderItemsByOrderId(orderId);
+      await notifyERMOfOrder(order, items);
+      console.log(`[ERM Notify] Admin manually re-sent order #${orderId} to ERM`);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("[ERM Notify] Manual resend failed:", error);
+      res.status(500).json({ message: "Failed to resend order to ERM" });
+    }
+  });
+
   // ERM callback — farm owner confirmed or rejected a reservation on the ERM side
   app.post("/api/erm/order-status", async (req: Request, res: Response) => {
     const secret = req.headers["x-ecommerce-secret"];
