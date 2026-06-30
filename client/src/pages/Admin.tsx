@@ -18,6 +18,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { isUnauthorizedError } from "@/lib/authUtils";
+import { BASE_URL } from "@/lib/queryClient";
 import { 
   Package, 
   ShoppingCart, 
@@ -190,7 +191,7 @@ export default function Admin() {
   const { data: products = [] } = useQuery({
     queryKey: ["/api/products"],
     queryFn: async () => {
-      const response = await fetch("https://myshop-test-backend.onrender.com/api/products");
+      const response = await fetch(`${BASE_URL}/api/products`);
       if (!response.ok) throw new Error("Failed to fetch products");
       return response.json();
     },
@@ -200,7 +201,7 @@ export default function Admin() {
   const { data: categories = [] } = useQuery({
     queryKey: ["/api/categories"],
     queryFn: async () => {
-      const response = await fetch("https://myshop-test-backend.onrender.com/api/categories");
+      const response = await fetch(`${BASE_URL}/api/categories`);
       if (!response.ok) throw new Error("Failed to fetch categories");
       return response.json();
     },

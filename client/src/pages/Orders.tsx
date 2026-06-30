@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
+import { BASE_URL } from "@/lib/queryClient";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -37,7 +38,7 @@ export default function Orders() {
     queryKey: ["/api/orders"],
     enabled: !!user,
     queryFn: async () => {
-      const res = await fetch("https://myshop-test-backend.onrender.com/api/orders", { credentials: "include" });
+      const res = await fetch(`${BASE_URL}/api/orders`, { credentials: "include" });
       if (!res.ok) {
         throw new Error("Failed to load orders");
       }

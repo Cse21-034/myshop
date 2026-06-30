@@ -478,6 +478,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createOrder(order: InsertOrder, items: InsertOrderItem[]): Promise<Order> {
+    // Check stock availability before creating the order
+    for (const item of items) {
+      if (!item.productId) continue;
+      const [product] = await db.select({ stock: products.stock, name: products.name })
+        .from(products)
+        .where(eq(products.id, item.productId));
+      if (!product) throw new Error(`Product not found: ${item.productId}`);
+      if ((product.stock ?? 0) < item.quantity) {
+        throw new Error(`Insufficient stock for "${product.name}". Available: ${product.stock ?? 0}`);
+      }
+    }
+
     const [newOrder] = await db
       .insert(orders)
       .values({
@@ -487,8 +499,25 @@ export class DatabaseStorage implements IStorage {
         orangeMoneyTransactionId: order.orangeMoneyTransactionId,
       })
       .returning();
+
     const orderItemsWithOrderId = items.map((item) => ({ ...item, orderId: newOrder.id }));
     await db.insert(orderItems).values(orderItemsWithOrderId);
+
+    // Decrement stock for each ordered item
+    for (const item of items) {
+      if (!item.productId) continue;
+      const [updated] = await db
+        .update(products)
+        .set({ stock: sql`${products.stock} - ${item.quantity}`, updatedAt: new Date() })
+        .where(eq(products.id, item.productId))
+        .returning({ stock: products.stock });
+      if ((updated?.stock ?? 0) <= 0) {
+        await db.update(products)
+          .set({ status: "out_of_stock", active: false })
+          .where(eq(products.id, item.productId!));
+      }
+    }
+
     return newOrder;
   }
 
