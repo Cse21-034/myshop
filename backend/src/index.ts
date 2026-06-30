@@ -26,7 +26,8 @@ const allowedOrigins = [
   "https://test-front-git-main-leatiles-projects.vercel.app",
   "https://test-front-mocha.vercel.app",
   "https://fountstream.com",
-  "https://shopv1-silk.vercel.app"
+  "https://shopv1-silk.vercel.app",
+  "https://shop.farmerm.com"
 ];
 
 // ✅ Fixed CORS configuration
