@@ -32,6 +32,9 @@ interface Order {
   shipping: string;
   tax: string;
   total: string;
+  depositAmount: string | null;
+  remainingBalance: string | null;
+  fulfillmentType: string | null;
   createdAt: string;
   items: OrderItem[];
 }
@@ -131,10 +134,31 @@ export default function OrderConfirmation() {
         <h1 className="text-3xl font-bold mb-6 text-primary">Order Receipt</h1>
 
         <div ref={orderRef} className="bg-white p-6 rounded shadow space-y-6 border border-gray-200">
+
+          {/* Farm reservation banner */}
+          {order.depositAmount && (
+            <div className={`rounded-lg p-4 text-sm font-medium ${
+              order.status === "confirmed"
+                ? "bg-green-50 border border-green-300 text-green-800"
+                : order.status === "cancelled"
+                ? "bg-red-50 border border-red-300 text-red-800"
+                : "bg-amber-50 border border-amber-300 text-amber-800"
+            }`}>
+              {order.status === "confirmed"
+                ? "✅ Your reservation has been confirmed by the farm. Please contact the farm to arrange collection."
+                : order.status === "cancelled"
+                ? "❌ This reservation was not confirmed by the farm. A refund will be processed if a deposit was paid."
+                : "⏳ Reservation pending — the farm will confirm availability within 24 hours."}
+            </div>
+          )}
+
           <section>
             <h2 className="font-semibold text-lg mb-2">Order #{order.id}</h2>
             <p>Date: {new Date(order.createdAt).toLocaleString()}</p>
-            <p>Status: <span className="capitalize">{order.status}</span></p>
+            <p>Status: <span className="capitalize">{order.status.replace(/_/g, " ")}</span></p>
+            {order.fulfillmentType && (
+              <p>Collection: <span className="capitalize">{order.fulfillmentType}</span></p>
+            )}
           </section>
 
           <section>
@@ -154,7 +178,7 @@ export default function OrderConfirmation() {
                   <th className="py-1">Product</th>
                   <th className="py-1">Options</th>
                   <th className="py-1">Qty</th>
-                  <th className="py-1">Price</th>
+                  <th className="py-1">Unit Price</th>
                   <th className="py-1">Subtotal</th>
                 </tr>
               </thead>
@@ -179,7 +203,19 @@ export default function OrderConfirmation() {
             <div>Subtotal: {convertToBWP(order.subtotal)}</div>
             <div>Shipping: {convertToBWP(order.shipping)}</div>
             <div>Tax: {convertToBWP(order.tax)}</div>
-            <div className="font-bold text-lg">Total: {convertToBWP(order.total)}</div>
+            {order.depositAmount ? (
+              <>
+                <div className="text-gray-400 line-through">Full total: {convertToBWP(order.total)}</div>
+                <div className="font-bold text-lg text-amber-700">
+                  Deposit paid: {convertToBWP(order.depositAmount)}
+                </div>
+                <div className="text-gray-600">
+                  Due on collection: {convertToBWP(order.remainingBalance ?? "0")}
+                </div>
+              </>
+            ) : (
+              <div className="font-bold text-lg">Total: {convertToBWP(order.total)}</div>
+            )}
           </section>
 
           <section>
