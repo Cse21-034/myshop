@@ -1,38 +1,60 @@
-// In-memory token store with TTL.
-// In production Redis could be used, but in-memory is sufficient here:
-// reset tokens are short-lived (1h) and a server restart simply invalidates
-// outstanding links (user can just request a new one).
-
-interface TokenEntry {
+interface OtpEntry {
+  otp: string;
   userId: string;
   email: string;
   expiresAt: number;
+  attempts: number;
+  createdAt: number;
 }
 
-const store = new Map<string, TokenEntry>();
+// Keyed by lowercase email
+const store = new Map<string, OtpEntry>();
 
-// Purge expired entries every 10 minutes
+// Purge expired entries every 5 minutes
 setInterval(() => {
   const now = Date.now();
-  for (const [token, entry] of store) {
-    if (entry.expiresAt <= now) store.delete(token);
+  for (const [key, entry] of store) {
+    if (entry.expiresAt <= now) store.delete(key);
   }
-}, 10 * 60 * 1000);
+}, 5 * 60 * 1000);
 
-export function setResetToken(token: string, userId: string, email: string, ttlMs = 60 * 60 * 1000) {
-  store.set(token, { userId, email, expiresAt: Date.now() + ttlMs });
+export function setOtp(
+  email: string,
+  otp: string,
+  userId: string,
+  ttlMs = 15 * 60 * 1000
+) {
+  store.set(email.toLowerCase(), {
+    otp,
+    userId,
+    email: email.toLowerCase(),
+    expiresAt: Date.now() + ttlMs,
+    attempts: 0,
+    createdAt: Date.now(),
+  });
 }
 
-export function getResetToken(token: string): TokenEntry | null {
-  const entry = store.get(token);
+export function getOtp(email: string): OtpEntry | null {
+  const entry = store.get(email.toLowerCase());
   if (!entry) return null;
   if (entry.expiresAt <= Date.now()) {
-    store.delete(token);
+    store.delete(email.toLowerCase());
     return null;
   }
   return entry;
 }
 
-export function deleteResetToken(token: string) {
-  store.delete(token);
+// Returns new attempt count. Deletes OTP after 5 wrong attempts.
+export function incrementOtpAttempts(email: string): number {
+  const entry = store.get(email.toLowerCase());
+  if (!entry) return 5;
+  entry.attempts += 1;
+  if (entry.attempts >= 5) {
+    store.delete(email.toLowerCase());
+  }
+  return entry.attempts;
+}
+
+export function deleteOtp(email: string) {
+  store.delete(email.toLowerCase());
 }

@@ -8,8 +8,8 @@ import { db } from "./db";
 import { contactMessages, products } from "./schema";
 import { createStripePaymentIntent, initiateOrangeMoneyPayment } from "./payment";
 import { createPayPalOrder, capturePayPalOrder } from "./paypal-service";
-import { sendEmail, passwordResetTemplate } from "./email";
-import { setResetToken, getResetToken, deleteResetToken } from "./tokenStore";
+import { sendEmail, otpEmailTemplate } from "./email";
+import { setOtp, getOtp, incrementOtpAttempts, deleteOtp } from "./tokenStore";
 import {
   insertProductSchema,
   insertCategorySchema,
@@ -418,61 +418,121 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ── Forgot password ──────────────────────────────────────────────────────
+  // ── Forgot password — sends 6-digit OTP ─────────────────────────────────
   app.post("/api/auth/forgot-password", async (req: Request, res: Response) => {
     try {
       const { email } = req.body;
       if (!email) return res.status(400).json({ message: "Email is required" });
 
-      const user = await storage.getUserByEmail(email.toLowerCase().trim());
+      const normalised = email.toLowerCase().trim();
+      const user = await storage.getUserByEmail(normalised);
 
       // Always return 200 to prevent email enumeration
-      if (!user) return res.json({ message: "If that email exists, a reset link has been sent." });
+      if (!user || !user.email) {
+        return res.json({ message: "If that email is registered, you'll receive a code shortly." });
+      }
       if (!user.passwordHash) {
-        return res.json({ message: "This account uses Google sign-in. Please log in with Google." });
+        // Google-only account — tell them directly so they don't wait for an OTP
+        return res.status(409).json({
+          message: "This account uses Google sign-in. Please log in with Google.",
+          code: "USE_GOOGLE",
+        });
       }
 
-      const { randomBytes } = await import("crypto");
-      const token = randomBytes(32).toString("hex");
-      setResetToken(token, user.id, user.email!);
+      // Rate-limit: only one new OTP per 60 seconds
+      const existing = getOtp(normalised);
+      if (existing && Date.now() - existing.createdAt < 60 * 1000) {
+        return res.status(429).json({ message: "Please wait 60 seconds before requesting another code." });
+      }
 
-      const frontendUrl = (process.env.FRONTEND_URL || "https://shop.farmerm.com").replace(/\/$/, "");
-      const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
-      const html = passwordResetTemplate(resetUrl, user.firstName || "there");
+      const { randomInt } = await import("crypto");
+      const otp = String(randomInt(100000, 1000000)).padStart(6, "0");
+      setOtp(normalised, otp, user.id);
 
-      await sendEmail(user.email!, "Reset your Fountstream password", html);
-      res.json({ message: "If that email exists, a reset link has been sent." });
+      const html = otpEmailTemplate(otp, user.firstName || "there");
+      await sendEmail(user.email, "Your Fountstream verification code", html);
+
+      res.json({ message: "If that email is registered, you'll receive a code shortly." });
     } catch (err: any) {
-      console.error("[Forgot password]", err);
-      res.status(500).json({ message: "Failed to send reset email. Please try again." });
+      console.error("[forgot-password]", err);
+      res.status(500).json({ message: "Failed to send code. Please try again." });
     }
   });
 
-  // ── Verify reset token (GET — frontend polls before showing the form) ──────
-  app.get("/api/auth/reset-password/:token", async (req: Request, res: Response) => {
-    const entry = getResetToken(req.params.token);
-    if (!entry) return res.status(400).json({ valid: false, message: "Link is invalid or has expired." });
-    res.json({ valid: true, email: entry.email });
+  // ── Verify OTP — returns a short-lived reset JWT ─────────────────────────
+  app.post("/api/auth/verify-otp", async (req: Request, res: Response) => {
+    try {
+      const { email, otp } = req.body;
+      if (!email || !otp) return res.status(400).json({ message: "Email and code are required" });
+
+      const normalised = email.toLowerCase().trim();
+      const entry = getOtp(normalised);
+      if (!entry) {
+        return res.status(400).json({
+          message: "Code has expired or is invalid. Please request a new one.",
+          code: "EXPIRED",
+        });
+      }
+
+      if (String(otp).trim() !== entry.otp) {
+        const attempts = incrementOtpAttempts(normalised);
+        const remaining = 5 - attempts;
+        if (remaining <= 0) {
+          return res.status(400).json({
+            message: "Too many incorrect attempts. Please request a new code.",
+            code: "LOCKED",
+          });
+        }
+        return res.status(400).json({
+          message: `Incorrect code. ${remaining} attempt${remaining === 1 ? "" : "s"} remaining.`,
+          code: "WRONG_OTP",
+          remaining,
+        });
+      }
+
+      // OTP correct — consume it and issue a 10-minute reset JWT
+      deleteOtp(normalised);
+
+      const jwt = await import("jsonwebtoken");
+      const resetToken = jwt.default.sign(
+        { userId: entry.userId, email: entry.email, purpose: "password-reset" },
+        process.env.JWT_SECRET!,
+        { expiresIn: "10m" }
+      );
+
+      res.json({ resetToken });
+    } catch (err: any) {
+      console.error("[verify-otp]", err);
+      res.status(500).json({ message: "Verification failed. Please try again." });
+    }
   });
 
-  // ── Reset password ────────────────────────────────────────────────────────
+  // ── Reset password — accepts resetToken from verify-otp ──────────────────
   app.post("/api/auth/reset-password", async (req: Request, res: Response) => {
     try {
-      const { token, password } = req.body;
-      if (!token || !password) return res.status(400).json({ message: "Token and password are required" });
+      const { resetToken, password } = req.body;
+      if (!resetToken || !password) return res.status(400).json({ message: "Reset token and password are required" });
       if (password.length < 8) return res.status(400).json({ message: "Password must be at least 8 characters" });
 
-      const entry = getResetToken(token);
-      if (!entry) return res.status(400).json({ message: "Reset link is invalid or has expired. Please request a new one." });
+      let payload: any;
+      try {
+        const jwt = await import("jsonwebtoken");
+        payload = jwt.default.verify(resetToken, process.env.JWT_SECRET!);
+      } catch {
+        return res.status(400).json({ message: "Session has expired. Please start over." });
+      }
+
+      if (payload.purpose !== "password-reset") {
+        return res.status(400).json({ message: "Invalid reset token." });
+      }
 
       const bcrypt = await import("bcryptjs");
       const passwordHash = await bcrypt.hash(password, 12);
-      await storage.updateUser(entry.userId, { passwordHash } as any);
-      deleteResetToken(token);
+      await storage.updateUser(payload.userId, { passwordHash } as any);
 
       res.json({ message: "Password updated successfully. You can now sign in." });
     } catch (err: any) {
-      console.error("[Reset password]", err);
+      console.error("[reset-password]", err);
       res.status(500).json({ message: "Failed to reset password. Please try again." });
     }
   });
