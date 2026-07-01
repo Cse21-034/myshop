@@ -57,6 +57,7 @@ export default function Checkout() {
   const [, setLocation] = useLocation();
   const [paypalError, setPaypalError] = useState<string | null>(null);
   const [paypalOrderId, setPaypalOrderId] = useState<string | null>(null);
+  const [fulfillmentType, setFulfillmentType] = useState<"pickup" | "delivery">("pickup");
   const { items, itemCount, clearCart } = useCart();
   const { toast } = useToast();
   const stripe = useStripe();
@@ -114,8 +115,22 @@ export default function Checkout() {
   // Tax 8% in USD
   const tax = subtotal * 0.08;
 
-  // Total price in USD
+  // Total price in USD (full product value — always stored in order record)
   const total = subtotal + shipping + tax;
+
+  // Deposit logic: if any cart item is a farm product with depositPercent > 0,
+  // the customer only pays the deposit now; the rest is due on collection.
+  const maxDepositPercent = Math.max(
+    ...cartItemsWithProducts.map(item => (item.product as any)?.depositPercent ?? 0),
+    0
+  );
+  const isFarmOrder = maxDepositPercent > 0;
+  const payableNow = isFarmOrder
+    ? parseFloat((total * maxDepositPercent / 100).toFixed(2))
+    : total;
+  const dueOnCollection = isFarmOrder
+    ? parseFloat((total - payableNow).toFixed(2))
+    : 0;
 
   
   const createOrderMutation = useMutation({
@@ -144,14 +159,15 @@ export default function Checkout() {
           paypalOrderId: orderData.paypalOrderId,
           orangeMoneyTransactionId: orderData.orangeMoneyTransactionId,
 
-          subtotal: subtotal.toFixed(2), // raw USD string
-          shipping: shipping.toFixed(2), // raw USD string
-          tax: tax.toFixed(2), // raw USD string
-          total: total.toFixed(2), // raw USD string
-          
+          subtotal: subtotal.toFixed(2),
+          shipping: shipping.toFixed(2),
+          tax: tax.toFixed(2),
+          total: total.toFixed(2), // full product value for record keeping
+
           status: orderData.paymentMethod === "cash" ? "pending" : "paid",
         },
         items: orderItems,
+        fulfillmentType: isFarmOrder ? fulfillmentType : undefined,
       };
 
       const response = await apiRequest("POST", "/api/orders", orderPayload);
@@ -190,7 +206,7 @@ export default function Checkout() {
 
     try {
       const response = await apiRequest("POST", "/api/payments/stripe/create", {
-        amount: total,
+        amount: payableNow,
         currency: "usd",
       });
       const { clientSecret } = await response.json();
@@ -245,7 +261,7 @@ export default function Checkout() {
     try {
       const response = await apiRequest("POST", "/api/payments/orangemoney/initiate", {
         phone: orderData.orangeMoneyPhone,
-        amount: total,
+        amount: payableNow,
         currency: "XAF",
       });
       const { transactionId } = await response.json();
@@ -626,7 +642,7 @@ export default function Checkout() {
 
                             setPaypalError(null);
                             const response = await apiRequest("POST", "/api/payments/paypal/create", {
-                              amount: total.toFixed(2),
+                              amount: payableNow.toFixed(2),
                               currency: "USD"
                             });
 
@@ -752,13 +768,34 @@ export default function Checkout() {
                   ))}
                 </div>
                 <Separator className="my-6" />
+
+                {isFarmOrder && (
+                  <div className="mb-4">
+                    <p className="text-sm font-medium mb-2">Collection method</p>
+                    <RadioGroup
+                      value={fulfillmentType}
+                      onValueChange={(v) => setFulfillmentType(v as "pickup" | "delivery")}
+                      className="flex gap-4"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="pickup" id="pickup" />
+                        <label htmlFor="pickup" className="text-sm cursor-pointer">Pickup</label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="delivery" id="delivery" />
+                        <label htmlFor="delivery" className="text-sm cursor-pointer">Delivery</label>
+                      </div>
+                    </RadioGroup>
+                  </div>
+                )}
+
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span>Subtotal ({itemCount} items):</span>
                     <span>{formatBWP(convertToBWP(subtotal.toFixed(2)))}</span>
                   </div>
                   <div className="flex justify-between">
-                     <span>Delivery:</span>
+                    <span>Delivery:</span>
                     <span>{shipping === 0 ? "Free" : formatBWP(convertToBWP(shipping.toFixed(2)))}</span>
                   </div>
                   <div className="flex justify-between">
@@ -766,10 +803,27 @@ export default function Checkout() {
                     <span>{formatBWP(convertToBWP(tax.toFixed(2)))}</span>
                   </div>
                   <Separator className="my-2" />
-                  <div className="flex justify-between text-lg font-bold">
-                    <span>Total:</span>
-                    <span className="text-secondary">{formatBWP(convertToBWP(total.toFixed(2)))}</span>
-                  </div>
+                  {isFarmOrder ? (
+                    <>
+                      <div className="flex justify-between text-gray-500 line-through">
+                        <span>Full total:</span>
+                        <span>{formatBWP(convertToBWP(total.toFixed(2)))}</span>
+                      </div>
+                      <div className="flex justify-between text-lg font-bold text-amber-700">
+                        <span>Deposit due now ({maxDepositPercent}%):</span>
+                        <span>{formatBWP(convertToBWP(payableNow.toFixed(2)))}</span>
+                      </div>
+                      <div className="flex justify-between text-sm text-gray-500">
+                        <span>Due on collection:</span>
+                        <span>{formatBWP(convertToBWP(dueOnCollection.toFixed(2)))}</span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex justify-between text-lg font-bold">
+                      <span>Total:</span>
+                      <span className="text-secondary">{formatBWP(convertToBWP(total.toFixed(2)))}</span>
+                    </div>
+                  )}
                 </div>
                 <div className="mt-6 pt-6 border-t border-gray-200">
                   <div className="space-y-2">
