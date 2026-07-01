@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { apiRequest, getQueryFn, createQueryKey, BASE_URL } from "@/lib/queryClient";
+import CloudinaryUpload from "@/components/CloudinaryUpload";
 import { useToast } from "@/hooks/use-toast";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -12,13 +13,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import {
   Plus, Edit, Trash2, ArrowLeft, Package,
-  Image as ImageIcon, Upload, X, Ruler, Palette,
+  Image as ImageIcon, X, Ruler, Palette,
 } from "lucide-react";
 
 const USD_TO_BWP = 13.5;
@@ -61,7 +61,6 @@ function ProductForm({
   onCancel: () => void;
   isPending: boolean;
 }) {
-  const [bulkImageUrls, setBulkImageUrls] = useState("");
   const [newSize, setNewSize] = useState("");
   const [newColor, setNewColor] = useState("");
 
@@ -116,22 +115,6 @@ function ProductForm({
     });
     return () => sub.unsubscribe();
   }, [form, product]);
-
-  function handleBulkImageUpload() {
-    const urls = bulkImageUrls
-      .split("\n")
-      .map(u => u.trim())
-      .filter(u => u.startsWith("http"));
-    if (urls.length === 0) return;
-    form.setValue("images", [...(form.getValues("images") || []), ...urls]);
-    setBulkImageUrls("");
-  }
-
-  function handleRemoveImage(index: number) {
-    const imgs = [...(form.getValues("images") || [])];
-    imgs.splice(index, 1);
-    form.setValue("images", imgs);
-  }
 
   function handleAddSize() {
     const s = newSize.trim();
@@ -275,45 +258,15 @@ function ProductForm({
             </div>
 
             {/* Product Images */}
-            <div className="space-y-4">
+            <div className="space-y-2">
               <FormLabel className="flex items-center gap-2">
                 <ImageIcon className="h-4 w-4" />
                 Product Images
               </FormLabel>
-              <div className="space-y-2">
-                <label className="text-sm text-gray-600">Bulk Upload (One URL per line)</label>
-                <Textarea
-                  placeholder={"https://example.com/image1.jpg\nhttps://example.com/image2.jpg\nhttps://example.com/image3.jpg"}
-                  value={bulkImageUrls}
-                  onChange={e => setBulkImageUrls(e.target.value)}
-                  rows={4}
-                />
-                <Button type="button" onClick={handleBulkImageUpload} variant="outline" size="sm">
-                  <Upload className="h-4 w-4 mr-2" />
-                  Add All Images
-                </Button>
-              </div>
-              {watchedImages && watchedImages.length > 0 ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {watchedImages.map((url, i) => (
-                    <div key={i} className="relative group">
-                      <img src={url} alt={`Product image ${i + 1}`} className="w-full h-24 object-cover rounded border" />
-                      <Button
-                        type="button" variant="destructive" size="sm"
-                        className="absolute top-1 right-1 h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={() => handleRemoveImage(i)}
-                      >
-                        <X className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                  <ImageIcon className="h-12 w-12 mx-auto text-gray-400 mb-2" />
-                  <p className="text-gray-500">No images added yet</p>
-                </div>
-              )}
+              <CloudinaryUpload
+                images={watchedImages ?? []}
+                onChange={urls => form.setValue("images", urls)}
+              />
             </div>
 
             {/* Available Sizes */}

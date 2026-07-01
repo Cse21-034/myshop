@@ -45,6 +45,7 @@ import {
 } from "lucide-react";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import CloudinaryUpload from "@/components/CloudinaryUpload";
 import type { Product, Order, ContactMessage } from "@shared/schema";
 
 const productSchema = z.object({
@@ -87,8 +88,6 @@ export default function Admin() {
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [editingMessage, setEditingMessage] = useState<ContactMessage | null>(null);
   
-  // Bulk upload states
-  const [bulkImageUrls, setBulkImageUrls] = useState("");
   const [newSize, setNewSize] = useState("");
   const [newColor, setNewColor] = useState("");
   const [supplierUrl, setSupplierUrl] = useState("");
@@ -564,48 +563,6 @@ export default function Admin() {
     }
   };
 
-  // Bulk image upload functions
-  const handleBulkImageUpload = () => {
-    if (bulkImageUrls.trim()) {
-      const urls = bulkImageUrls
-        .split('\n')
-        .map(url => url.trim())
-        .filter(url => url.length > 0 && isValidUrl(url));
-      
-      if (urls.length > 0) {
-        const currentImages = productForm.getValues("images");
-        const uniqueUrls = [...new Set([...currentImages, ...urls])];
-        productForm.setValue("images", uniqueUrls);
-        setBulkImageUrls("");
-        toast({
-          title: "Images added",
-          description: `Added ${urls.length} images successfully.`,
-        });
-      } else {
-        toast({
-          title: "Invalid URLs",
-          description: "Please enter valid image URLs.",
-          variant: "destructive",
-        });
-      }
-    }
-  };
-
-  const isValidUrl = (string: string) => {
-    try {
-      new URL(string);
-      return true;
-    } catch (_) {
-      return false;
-    }
-  };
-
-  const handleRemoveImage = (index: number) => {
-    const currentImages = productForm.getValues("images");
-    const updatedImages = currentImages.filter((_, i) => i !== index);
-    productForm.setValue("images", updatedImages);
-  };
-
   // Size management functions
   const handleAddSize = () => {
     if (newSize.trim()) {
@@ -940,58 +897,16 @@ export default function Admin() {
                             />
                           </div>
 
-                          {/* Bulk Images Section */}
-                          <div className="space-y-4">
+                          {/* Images */}
+                          <div className="space-y-2">
                             <FormLabel className="flex items-center gap-2">
                               <ImageIcon className="h-4 w-4" />
                               Product Images
                             </FormLabel>
-                            
-                            {/* Bulk upload textarea */}
-                            <div className="space-y-2">
-                              <label className="text-sm text-gray-600">Bulk Upload (One URL per line)</label>
-                              <Textarea
-                                placeholder="https://example.com/image1.jpg&#10;https://example.com/image2.jpg&#10;https://example.com/image3.jpg"
-                                value={bulkImageUrls}
-                                onChange={(e) => setBulkImageUrls(e.target.value)}
-                                rows={4}
-                              />
-                              <Button type="button" onClick={handleBulkImageUpload} variant="outline" size="sm">
-                                <Upload className="h-4 w-4 mr-2" />
-                                Add All Images
-                              </Button>
-                            </div>
-
-                            {/* Display current images */}
-                            {watchedImages && watchedImages.length > 0 && (
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                {watchedImages.map((imageUrl, index) => (
-                                  <div key={index} className="relative group">
-                                    <img
-                                      src={imageUrl}
-                                      alt={`Product image ${index + 1}`}
-                                      className="w-full h-24 object-cover rounded border"
-                                    />
-                                    <Button
-                                      type="button"
-                                      variant="destructive"
-                                      size="sm"
-                                      className="absolute top-1 right-1 h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                                      onClick={() => handleRemoveImage(index)}
-                                    >
-                                      <X className="h-3 w-3" />
-                                    </Button>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-
-                            {(!watchedImages || watchedImages.length === 0) && (
-                              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                                <ImageIcon className="h-12 w-12 mx-auto text-gray-400 mb-2" />
-                                <p className="text-gray-500">No images added yet</p>
-                              </div>
-                            )}
+                            <CloudinaryUpload
+                              images={watchedImages ?? []}
+                              onChange={urls => productForm.setValue("images", urls)}
+                            />
                           </div>
 
                           {/* Sizes Section */}
