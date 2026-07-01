@@ -1,11 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -20,34 +19,19 @@ import { z } from "zod";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { BASE_URL } from "@/lib/queryClient";
 import {
-  Package,
-  ShoppingCart,
-  Users,
-  DollarSign,
-  Mail,
-  Plus,
-  Edit,
-  Trash2,
-  Eye,
-  X,
-  Upload,
-  Image as ImageIcon,
-  Link,
-  Palette,
-  Ruler,
-  RefreshCw,
-  CheckCircle2,
-  AlertCircle,
-  Tractor,
-  Store,
-  CheckCircle,
-  XCircle,
+  Package, ShoppingCart, Users, DollarSign, Mail, Plus, Edit, Trash2, X,
+  Image as ImageIcon, Link, Palette, Ruler, RefreshCw, CheckCircle2,
+  AlertCircle, Tractor, Store, CheckCircle, XCircle, Menu, TrendingUp,
+  LayoutDashboard, LogOut, Activity, Bell, ExternalLink,
 } from "lucide-react";
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
 import CloudinaryUpload from "@/components/CloudinaryUpload";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip,
+  ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area,
+} from "recharts";
 import type { Product, Order, ContactMessage } from "@shared/schema";
 
+// ── Schemas ──────────────────────────────────────────────────────────────────
 const productSchema = z.object({
   name: z.string().min(1, "Product name is required"),
   slug: z.string().min(1, "Product slug is required"),
@@ -58,1508 +42,972 @@ const productSchema = z.object({
   images: z.array(z.string()).default([]),
   sizes: z.array(z.string()).default([]),
   colors: z.array(z.string()).default([]),
-  stock: z.number().min(0, "Stock must be 0 or greater"),
+  stock: z.number().min(0),
   featured: z.boolean().default(false),
   active: z.boolean().default(true),
   status: z.enum(["active", "inactive", "sold", "out_of_stock"]).default("active"),
   supplierUrl: z.string().url().optional().or(z.literal("")),
 });
-
 const orderStatusSchema = z.object({
   status: z.enum(["awaiting_confirmation", "confirmed", "pending", "processing", "shipped", "delivered", "cancelled"]),
 });
-
 const messageStatusSchema = z.object({
   status: z.enum(["unread", "read", "replied"]),
 });
-
 type ProductFormData = z.infer<typeof productSchema>;
-type OrderStatusFormData = z.infer<typeof orderStatusSchema>;
-type MessageStatusFormData = z.infer<typeof messageStatusSchema>;
 
+type Section = "overview" | "products" | "orders" | "messages" | "sellers" | "farm";
+
+// ── Chart colours ─────────────────────────────────────────────────────────────
+const PIE_COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
+const STATUS_LABEL: Record<string, string> = {
+  pending: "Pending", processing: "Processing", shipped: "Shipped",
+  delivered: "Delivered", cancelled: "Cancelled", confirmed: "Confirmed",
+  awaiting_confirmation: "Awaiting",
+};
+
+// ── Stat card ─────────────────────────────────────────────────────────────────
+function StatCard({ label, value, icon: Icon, color, sub }: {
+  label: string; value: string | number; icon: React.ElementType;
+  color: string; sub?: string;
+}) {
+  return (
+    <Card className="border-0 shadow-sm">
+      <CardContent className="p-5">
+        <div className="flex items-start justify-between">
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</p>
+            <p className="text-2xl font-bold text-gray-900">{value}</p>
+            {sub && <p className="text-xs text-gray-400">{sub}</p>}
+          </div>
+          <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${color}`}>
+            <Icon className="h-5 w-5 text-white" />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Sidebar nav item ──────────────────────────────────────────────────────────
+function NavItem({ icon: Icon, label, active, badge, onClick }: {
+  icon: React.ElementType; label: string; active: boolean;
+  badge?: number; onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+        active
+          ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+          : "text-slate-400 hover:bg-slate-800 hover:text-white"
+      }`}
+    >
+      <Icon className="h-4 w-4 flex-shrink-0" />
+      <span className="flex-1 text-left">{label}</span>
+      {badge ? (
+        <span className="bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+          {badge > 9 ? "9+" : badge}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export default function Admin() {
   const { user, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  const [section, setSection] = useState<Section>("overview");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const [isProductDialogOpen, setIsProductDialogOpen] = useState(false);
   const [isOrderDialogOpen, setIsOrderDialogOpen] = useState(false);
   const [isMessageDialogOpen, setIsMessageDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [editingMessage, setEditingMessage] = useState<ContactMessage | null>(null);
-  
   const [newSize, setNewSize] = useState("");
   const [newColor, setNewColor] = useState("");
   const [supplierUrl, setSupplierUrl] = useState("");
+  const [syncResult, setSyncResult] = useState<{ created: number; updated: number; deactivated: number } | null>(null);
 
   const productForm = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
     defaultValues: {
-      name: "",
-      slug: "",
-      description: "",
-      price: "",
-      originalPrice: "",
-      categoryId: undefined,
-      images: [],
-      sizes: [],
-      colors: [],
-      stock: 0,
-      featured: false,
-      active: true,
-      status: "active",
-      supplierUrl: "",
+      name: "", slug: "", description: "", price: "", originalPrice: "",
+      categoryId: undefined, images: [], sizes: [], colors: [],
+      stock: 0, featured: false, active: true, status: "active", supplierUrl: "",
     },
   });
-
-  const orderForm = useForm<OrderStatusFormData>({
+  const orderForm = useForm<z.infer<typeof orderStatusSchema>>({
     resolver: zodResolver(orderStatusSchema),
-    defaultValues: {
-      status: "pending",
-    },
+    defaultValues: { status: "pending" },
   });
-
-  const messageForm = useForm<MessageStatusFormData>({
+  const messageForm = useForm<z.infer<typeof messageStatusSchema>>({
     resolver: zodResolver(messageStatusSchema),
-    defaultValues: {
-      status: "unread",
-    },
+    defaultValues: { status: "unread" },
   });
 
-  // Watch form values for dynamic updates
   const watchedImages = productForm.watch("images");
   const watchedSizes = productForm.watch("sizes");
   const watchedColors = productForm.watch("colors");
   const watchedStock = productForm.watch("stock");
   const watchedStatus = productForm.watch("status");
 
-  // Auto-update status based on stock
   useEffect(() => {
-    if (watchedStock === 0 && watchedStatus !== "sold") {
-      productForm.setValue("status", "out_of_stock");
-    } else if (watchedStock > 0 && watchedStatus === "out_of_stock") {
-      productForm.setValue("status", "active");
-    }
-  }, [watchedStock, watchedStatus, productForm]);
+    if (watchedStock === 0 && watchedStatus !== "sold") productForm.setValue("status", "out_of_stock");
+    else if (watchedStock > 0 && watchedStatus === "out_of_stock") productForm.setValue("status", "active");
+  }, [watchedStock, watchedStatus]);
 
-  // Generate slug from name
-  const generateSlug = (name: string) => {
-    return name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)+/g, '');
-  };
-
-  // Watch name changes to auto-generate slug
   useEffect(() => {
-    const subscription = productForm.watch((value, { name }) => {
-      if (name === 'name' && value.name && !editingProduct) {
-        productForm.setValue('slug', generateSlug(value.name));
+    const sub = productForm.watch((value, { name }) => {
+      if (name === "name" && value.name && !editingProduct) {
+        productForm.setValue("slug", value.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)+/g, ""));
       }
     });
-    return () => subscription.unsubscribe();
+    return () => sub.unsubscribe();
   }, [productForm, editingProduct]);
 
-  // Redirect to home if not authenticated or not admin
   useEffect(() => {
     if (!authLoading && (!user || !user.isAdmin)) {
-      toast({
-        title: "Unauthorized",
-        description: "You are not authorized to access this page.",
-        variant: "destructive",
-      });
-      setTimeout(() => {
-        window.location.href = "/";
-      }, 1000);
+      toast({ title: "Unauthorized", variant: "destructive" });
+      setTimeout(() => { window.location.href = "/"; }, 1000);
     }
-  }, [user, authLoading, toast]);
+  }, [user, authLoading]);
 
-  // Admin stats
-  const { data: stats } = useQuery({
-    queryKey: ["/api/admin/stats"],
-    retry: (failureCount, error) => {
-      if (isUnauthorizedError(error as Error)) {
-        toast({
-          title: "Session expired",
-          description: "Please log in again.",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          window.location.href = "/api/login";
-        }, 1000);
-        return false;
-      }
-      return failureCount < 3;
-    },
-  });
-
-  // Products
+  // ── Queries ─────────────────────────────────────────────────────────────────
+  const { data: stats } = useQuery({ queryKey: ["/api/admin/stats"] });
   const { data: products = [] } = useQuery({
     queryKey: ["/api/products"],
-    queryFn: async () => {
-      const response = await fetch(`${BASE_URL}/api/products`);
-      if (!response.ok) throw new Error("Failed to fetch products");
-      return response.json();
-    },
+    queryFn: async () => (await fetch(`${BASE_URL}/api/products`)).json(),
   });
-
-  // Categories
   const { data: categories = [] } = useQuery({
     queryKey: ["/api/categories"],
-    queryFn: async () => {
-      const response = await fetch(`${BASE_URL}/api/categories`);
-      if (!response.ok) throw new Error("Failed to fetch categories");
-      return response.json();
-    },
+    queryFn: async () => (await fetch(`${BASE_URL}/api/categories`)).json(),
   });
-
-  // Orders
-  const { data: orders = [] } = useQuery({
-    queryKey: ["/api/orders"],
-    retry: (failureCount, error) => {
-      if (isUnauthorizedError(error as Error)) {
-        return false;
-      }
-      return failureCount < 3;
-    },
-  });
-
-  // Contact messages
-  const { data: messages = [] } = useQuery({
-    queryKey: ["/api/contact"],
-    retry: (failureCount, error) => {
-      if (isUnauthorizedError(error as Error)) {
-        return false;
-      }
-      return failureCount < 3;
-    },
-  });
-
-  // Sellers
-  const { data: sellers = [], refetch: refetchSellers } = useQuery({
-    queryKey: ["/api/admin/sellers"],
-    retry: false,
-  });
-
-  const sellerStatusMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: number; status: string }) => {
-      await apiRequest("PUT", `/api/admin/sellers/${id}/status`, { status });
-    },
-    onSuccess: () => {
-      refetchSellers();
-      toast({ title: "Seller status updated." });
-    },
-    onError: () => toast({ title: "Failed to update seller.", variant: "destructive" }),
-  });
-
-  // Create/Update product mutation
-  const productMutation = useMutation({
-    mutationFn: async (data: ProductFormData) => {
-      const url = editingProduct ? `/api/products/${editingProduct.id}` : "/api/products";
-      const method = editingProduct ? "PUT" : "POST";
-      await apiRequest(method, url, data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
-      setIsProductDialogOpen(false);
-      setEditingProduct(null);
-      productForm.reset();
-      resetDialogStates();
-      toast({
-        title: editingProduct ? "Product updated" : "Product created",
-        description: "Product has been saved successfully.",
-      });
-    },
-    onError: (error) => {
-      if (isUnauthorizedError(error as Error)) {
-        toast({
-          title: "Session expired",
-          description: "Please log in again.",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          window.location.href = "/api/login";
-        }, 1000);
-        return;
-      }
-      toast({
-        title: "Error",
-        description: error.message || "Failed to save product.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Update order status mutation
-  const updateOrderMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: number; status: string }) => {
-      await apiRequest("PUT", `/api/orders/${id}/status`, { status });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
-      setIsOrderDialogOpen(false);
-      setEditingOrder(null);
-      orderForm.reset();
-      toast({
-        title: "Order updated",
-        description: "Order status has been updated successfully.",
-      });
-    },
-    onError: (error) => {
-      if (isUnauthorizedError(error as Error)) {
-        toast({
-          title: "Session expired",
-          description: "Please log in again.",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          window.location.href = "/api/login";
-        }, 1000);
-        return;
-      }
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update order status.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Quick confirm / reject for farm reservations
-  const confirmReservationMutation = useMutation({
-    mutationFn: async ({ id, action }: { id: number; action: "confirmed" | "cancelled" }) => {
-      await apiRequest("PUT", `/api/orders/${id}/status`, { status: action });
-    },
-    onSuccess: (_, { action }) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
-      toast({
-        title: action === "confirmed" ? "Reservation confirmed" : "Reservation rejected",
-        description: action === "confirmed"
-          ? "Customer has been notified via WhatsApp."
-          : "Reservation has been cancelled and customer notified.",
-      });
-    },
-    onError: (error) => {
-      toast({ title: "Error", description: (error as Error).message, variant: "destructive" });
-    },
-  });
-
-  // Resend order notification to ERM
-  const resendToERMMutation = useMutation({
-    mutationFn: async (id: number) => {
-      await apiRequest("POST", `/api/admin/orders/${id}/notify-erm`, {});
-    },
-    onSuccess: (_, id) => {
-      toast({ title: "Sent to ERM", description: `Order #${id} notification resent to ERM successfully.` });
-    },
-    onError: (error) => {
-      toast({ title: "Failed to resend", description: (error as Error).message, variant: "destructive" });
-    },
-  });
-
-  // Delete order mutation
-  const deleteOrderMutation = useMutation({
-    mutationFn: async (id: number) => {
-      await apiRequest("DELETE", `/api/orders/${id}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
-      toast({
-        title: "Order deleted",
-        description: "Order has been deleted successfully.",
-      });
-    },
-    onError: (error) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to delete order.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Update message status mutation
-  const updateMessageMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: number; status: string }) => {
-      await apiRequest("PUT", `/api/contact/${id}/status`, { status });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/contact"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
-      setIsMessageDialogOpen(false);
-      setEditingMessage(null);
-      messageForm.reset();
-      toast({
-        title: "Message updated",
-        description: "Message status has been updated successfully.",
-      });
-    },
-    onError: (error) => {
-      if (isUnauthorizedError(error as Error)) {
-        toast({
-          title: "Session expired",
-          description: "Please log in again.",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          window.location.href = "/api/login";
-        }, 1000);
-        return;
-      }
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update message status.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Delete message mutation
-  const deleteMessageMutation = useMutation({
-    mutationFn: async (id: number) => {
-      await apiRequest("DELETE", `/api/contact/${id}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/contact"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
-      toast({
-        title: "Message deleted",
-        description: "Message has been deleted successfully.",
-      });
-    },
-    onError: (error) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to delete message.",
-        variant: "destructive",
-      });
-    },
-  });
-
-
-    // Delete product mutation
-  const deleteProductMutation = useMutation({
-    mutationFn: async (id: number) => {
-      await apiRequest("DELETE", `/api/products/${id}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
-      toast({
-        title: "Product deleted",
-        description: "Product has been deleted successfully.",
-      });
-    },
-    onError: (error) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to delete product.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // ERM marketplace sync
+  const { data: orders = [] } = useQuery({ queryKey: ["/api/orders"], retry: false });
+  const { data: messages = [] } = useQuery({ queryKey: ["/api/contact"], retry: false });
+  const { data: sellers = [], refetch: refetchSellers } = useQuery({ queryKey: ["/api/admin/sellers"], retry: false });
   const { data: ermStatus, refetch: refetchErmStatus } = useQuery({
     queryKey: ["/api/erm/status"],
     queryFn: async () => {
       const res = await fetch(`${BASE_URL}/api/erm/status`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch ERM status");
+      if (!res.ok) throw new Error("Failed");
       return res.json();
     },
     retry: false,
   });
 
-  const [syncResult, setSyncResult] = useState<{ created: number; updated: number; deactivated: number } | null>(null);
+  // ── Chart data derived client-side ───────────────────────────────────────
+  const revenueByMonth = useMemo(() => {
+    const months: Record<string, number> = {};
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(); d.setMonth(d.getMonth() - i);
+      months[d.toLocaleDateString("en-US", { month: "short" })] = 0;
+    }
+    (orders as Order[]).forEach((o) => {
+      const key = new Date(o.createdAt!).toLocaleDateString("en-US", { month: "short" });
+      if (key in months) months[key] += parseFloat(o.total) || 0;
+    });
+    return Object.entries(months).map(([month, revenue]) => ({ month, revenue: parseFloat(revenue.toFixed(2)) }));
+  }, [orders]);
+
+  const ordersByStatus = useMemo(() => {
+    const map: Record<string, number> = {};
+    (orders as Order[]).forEach((o) => { map[o.status] = (map[o.status] || 0) + 1; });
+    return Object.entries(map).map(([status, count]) => ({ name: STATUS_LABEL[status] || status, value: count }));
+  }, [orders]);
+
+  const ordersByDay = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      map[d.toLocaleDateString("en-US", { month: "short", day: "numeric" })] = 0;
+    }
+    (orders as Order[]).forEach((o) => {
+      const key = new Date(o.createdAt!).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      if (key in map) map[key]++;
+    });
+    return Object.entries(map).map(([day, orders]) => ({ day, orders }));
+  }, [orders]);
+
+  const unreadCount = (messages as ContactMessage[]).filter((m) => m.status === "unread").length;
+  const pendingSellers = (sellers as any[]).filter((s) => s.status === "pending").length;
+  const pendingOrders = (orders as Order[]).filter((o) => o.status === "awaiting_confirmation").length;
+
+  // ── Mutations ────────────────────────────────────────────────────────────────
+  const productMutation = useMutation({
+    mutationFn: async (data: ProductFormData) => {
+      const url = editingProduct ? `/api/products/${editingProduct.id}` : "/api/products";
+      await apiRequest(editingProduct ? "PUT" : "POST", url, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
+      setIsProductDialogOpen(false); setEditingProduct(null); productForm.reset();
+      setNewSize(""); setNewColor(""); setSupplierUrl("");
+      toast({ title: editingProduct ? "Product updated" : "Product created" });
+    },
+    onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+  });
+
+  const deleteProductMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/products/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
+      toast({ title: "Product deleted" });
+    },
+    onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+  });
+
+  const updateOrderMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: number; status: string }) =>
+      apiRequest("PUT", `/api/orders/${id}/status`, { status }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
+      setIsOrderDialogOpen(false); setEditingOrder(null);
+      toast({ title: "Order updated" });
+    },
+    onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+  });
+
+  const deleteOrderMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/orders/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      toast({ title: "Order deleted" });
+    },
+    onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+  });
+
+  const confirmReservationMutation = useMutation({
+    mutationFn: ({ id, action }: { id: number; action: "confirmed" | "cancelled" }) =>
+      apiRequest("PUT", `/api/orders/${id}/status`, { status: action }),
+    onSuccess: (_, { action }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      toast({ title: action === "confirmed" ? "Reservation confirmed" : "Reservation rejected" });
+    },
+    onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+  });
+
+  const resendToERMMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/admin/orders/${id}/notify-erm`, {}),
+    onSuccess: (_, id) => toast({ title: "Sent to ERM", description: `Order #${id} resent.` }),
+    onError: (e) => toast({ title: "Failed", description: (e as Error).message, variant: "destructive" }),
+  });
+
+  const updateMessageMutation = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: string }) =>
+      apiRequest("PUT", `/api/contact/${id}/status`, { status }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contact"] });
+      setIsMessageDialogOpen(false); setEditingMessage(null);
+      toast({ title: "Message updated" });
+    },
+    onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+  });
+
+  const deleteMessageMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/contact/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contact"] });
+      toast({ title: "Message deleted" });
+    },
+    onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+  });
+
+  const sellerStatusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: string }) =>
+      apiRequest("PUT", `/api/admin/sellers/${id}/status`, { status }),
+    onSuccess: () => { refetchSellers(); toast({ title: "Seller status updated." }); },
+    onError: () => toast({ title: "Failed to update seller.", variant: "destructive" }),
+  });
 
   const ermSyncMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/erm/sync");
-      return res.json();
-    },
+    mutationFn: async () => (await apiRequest("POST", "/api/erm/sync")).json(),
     onSuccess: (data) => {
       const s = data.summary ?? data;
       setSyncResult({ created: s.created ?? 0, updated: s.updated ?? 0, deactivated: s.deactivated ?? 0 });
-      refetchErmStatus();
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
-      toast({
-        title: "ERM sync complete",
-        description: `Created ${s.created ?? 0}, updated ${s.updated ?? 0}, deactivated ${s.deactivated ?? 0} products.`,
-      });
+      refetchErmStatus(); queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      toast({ title: "ERM sync complete", description: `${s.created ?? 0} created, ${s.updated ?? 0} updated, ${s.deactivated ?? 0} deactivated.` });
     },
-    onError: (error) => {
-      toast({
-        title: "Sync failed",
-        description: (error as Error).message || "Could not sync from ERM.",
-        variant: "destructive",
-      });
-    },
+    onError: (e) => toast({ title: "Sync failed", description: (e as Error).message, variant: "destructive" }),
   });
 
-  const resetDialogStates = () => {
-    setBulkImageUrls("");
-    setNewSize("");
-    setNewColor("");
-    setSupplierUrl("");
-  };
-
-  const handleEditProduct = (product: Product) => {
-    setEditingProduct(product);
+  // ── Handlers ─────────────────────────────────────────────────────────────────
+  function handleEditProduct(p: Product) {
+    setEditingProduct(p);
     productForm.reset({
-      name: product.name,
-      slug: product.slug,
-      description: product.description || "",
-      price: product.price,
-      originalPrice: product.originalPrice || "",
-      categoryId: product.categoryId || undefined,
-      images: product.images || [],
-      sizes: product.sizes || [],
-      colors: product.colors || [],
-      stock: product.stock || 0,
-      featured: product.featured || false,
-      active: product.active || true,
-      status: (product as any).status || "active",
-      supplierUrl: (product as any).supplierUrl || "",
+      name: p.name, slug: p.slug, description: p.description || "",
+      price: p.price, originalPrice: p.originalPrice || "",
+      categoryId: p.categoryId || undefined, images: p.images || [],
+      sizes: p.sizes || [], colors: p.colors || [], stock: p.stock || 0,
+      featured: p.featured || false, active: p.active ?? true,
+      status: (p as any).status || "active", supplierUrl: (p as any).supplierUrl || "",
     });
-    setSupplierUrl((product as any).supplierUrl || "");
+    setSupplierUrl((p as any).supplierUrl || "");
     setIsProductDialogOpen(true);
-  };
+  }
 
-  const handleEditOrder = (order: Order) => {
-    setEditingOrder(order);
-    orderForm.reset({
-      status: order.status,
-    });
-    setIsOrderDialogOpen(true);
-  };
+  function getStatusBadge(status: string, stock: number) {
+    if (status === "sold") return <Badge variant="destructive">Sold</Badge>;
+    if (status === "out_of_stock" || stock === 0) return <Badge variant="secondary">Out of Stock</Badge>;
+    if (status === "inactive") return <Badge variant="outline" className="text-gray-600">Inactive</Badge>;
+    return <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">Active</Badge>;
+  }
 
-  const handleEditMessage = (message: ContactMessage) => {
-    setEditingMessage(message);
-    messageForm.reset({
-      status: message.status,
-    });
-    setIsMessageDialogOpen(true);
-  };
+  function go(s: Section) { setSection(s); setSidebarOpen(false); }
 
-  const handleDeleteProduct = (id: number) => {
-    if (confirm("Are you sure you want to delete this product?")) {
-      deleteProductMutation.mutate(id);
-    }
-  };
+  if (authLoading || !user?.isAdmin) return null;
 
-  const handleDeleteOrder = (id: number) => {
-    if (confirm("Are you sure you want to delete this order?")) {
-      deleteOrderMutation.mutate(id);
-    }
-  };
-
-  const handleDeleteMessage = (id: number) => {
-    if (confirm("Are you sure you want to delete this message?")) {
-      deleteMessageMutation.mutate(id);
-    }
-  };
-
-  // Size management functions
-  const handleAddSize = () => {
-    if (newSize.trim()) {
-      const currentSizes = productForm.getValues("sizes");
-      if (!currentSizes.includes(newSize.trim())) {
-        productForm.setValue("sizes", [...currentSizes, newSize.trim()]);
-        setNewSize("");
-      }
-    }
-  };
-
-  const handleRemoveSize = (sizeToRemove: string) => {
-    const currentSizes = productForm.getValues("sizes");
-    productForm.setValue("sizes", currentSizes.filter(size => size !== sizeToRemove));
-  };
-
-  // Color management functions
-  const handleAddColor = () => {
-    if (newColor.trim()) {
-      const currentColors = productForm.getValues("colors");
-      if (!currentColors.includes(newColor.trim())) {
-        productForm.setValue("colors", [...currentColors, newColor.trim()]);
-        setNewColor("");
-      }
-    }
-  };
-
-  const handleRemoveColor = (colorToRemove: string) => {
-    const currentColors = productForm.getValues("colors");
-    productForm.setValue("colors", currentColors.filter(color => color !== colorToRemove));
-  };
-
-  const getStatusBadge = (status: string, stock: number) => {
-    if (status === "sold") {
-      return <Badge variant="destructive">Sold</Badge>;
-    }
-    if (status === "out_of_stock" || stock === 0) {
-      return <Badge variant="secondary">Out of Stock</Badge>;
-    }
-    if (status === "inactive") {
-      return <Badge variant="outline" className="text-gray-600 border-gray-600">Inactive</Badge>;
-    }
-    return <Badge variant="outline" className="text-green-600 border-green-600">Active</Badge>;
-  };
-
-  const onProductSubmit = (data: ProductFormData) => {
-    const submitData = {
-      ...data,
-      supplierUrl: supplierUrl || undefined
-    };
-    productMutation.mutate(submitData);
-  };
-
-  const onOrderSubmit = (data: OrderStatusFormData) => {
-    if (editingOrder) {
-      updateOrderMutation.mutate({ id: editingOrder.id, status: data.status });
-    }
-  };
-
-  const onMessageSubmit = (data: MessageStatusFormData) => {
-    if (editingMessage) {
-      updateMessageMutation.mutate({ id: editingMessage.id, status: data.status });
-    }
-  };
-
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <Header />
-        <div className="container mx-auto px-4 py-8">
-          <div className="animate-pulse">
-            <div className="h-8 bg-gray-200 rounded w-1/4 mb-6" />
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-              {[...Array(4)].map((_, i) => (
-                <div key={i} className="h-32 bg-gray-200 rounded-lg" />
-              ))}
-            </div>
+  // ── Sidebar ───────────────────────────────────────────────────────────────────
+  const sidebar = (
+    <aside className="flex flex-col h-full bg-slate-900 text-white">
+      {/* Logo */}
+      <div className="px-4 py-5 border-b border-slate-800">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center text-white font-bold text-sm">F</div>
+          <div>
+            <p className="font-bold text-white text-sm leading-none">Fountstream</p>
+            <p className="text-xs text-slate-400 mt-0.5">Admin Dashboard</p>
           </div>
         </div>
-        <Footer />
       </div>
-    );
-  }
 
-  if (!user?.isAdmin) {
-    return null;
-  }
+      {/* Nav */}
+      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        <p className="text-xs text-slate-500 uppercase tracking-widest px-3 mb-2">Main</p>
+        <NavItem icon={LayoutDashboard} label="Overview" active={section === "overview"} onClick={() => go("overview")} />
+        <NavItem icon={Package} label="Products" active={section === "products"} onClick={() => go("products")} />
+        <NavItem icon={ShoppingCart} label="Orders" active={section === "orders"} badge={pendingOrders || undefined} onClick={() => go("orders")} />
+        <p className="text-xs text-slate-500 uppercase tracking-widest px-3 pt-4 mb-2">Manage</p>
+        <NavItem icon={Mail} label="Messages" active={section === "messages"} badge={unreadCount || undefined} onClick={() => go("messages")} />
+        <NavItem icon={Store} label="Sellers" active={section === "sellers"} badge={pendingSellers || undefined} onClick={() => go("sellers")} />
+        <NavItem icon={Tractor} label="Farm Market" active={section === "farm"} onClick={() => go("farm")} />
+      </nav>
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <Header />
-
-      <div className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold text-primary mb-8">Admin Dashboard</h1>
-        
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Total Products</p>
-                  <p className="text-2xl font-bold">{stats?.totalProducts || 0}</p>
-                </div>
-                <Package className="h-8 w-8 text-blue-500" />
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Total Orders</p>
-                  <p className="text-2xl font-bold">{stats?.totalOrders || 0}</p>
-                </div>
-                <ShoppingCart className="h-8 w-8 text-green-500" />
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Total Customers</p>
-                  <p className="text-2xl font-bold">{stats?.totalCustomers || 0}</p>
-                </div>
-                <Users className="h-8 w-8 text-yellow-500" />
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Revenue</p>
-                  <p className="text-2xl font-bold">${stats?.revenue?.toFixed(2) || "0.00"}</p>
-                </div>
-                <DollarSign className="h-8 w-8 text-purple-500" />
-              </div>
-            </CardContent>
-          </Card>
+      {/* Bottom */}
+      <div className="px-3 py-4 border-t border-slate-800 space-y-1">
+        <a href="/" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-400 hover:bg-slate-800 hover:text-white transition-all">
+          <ExternalLink className="h-4 w-4" /> View Store
+        </a>
+        <div className="flex items-center gap-3 px-3 py-2">
+          <div className="w-7 h-7 rounded-full bg-emerald-500 flex items-center justify-center text-xs font-bold">
+            {user.firstName?.[0] ?? "A"}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-white truncate">{user.firstName} {user.lastName}</p>
+            <p className="text-xs text-slate-500 truncate">{user.email}</p>
+          </div>
         </div>
+      </div>
+    </aside>
+  );
 
-        {/* Admin Tabs */}
-        <Tabs defaultValue="products" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5">
-            <TabsTrigger value="products">Products</TabsTrigger>
-            <TabsTrigger value="orders">Orders</TabsTrigger>
-            <TabsTrigger value="messages">Messages</TabsTrigger>
-            <TabsTrigger value="farm-market">Farm Market</TabsTrigger>
-            <TabsTrigger value="sellers">Sellers</TabsTrigger>
-          </TabsList>
-
-          {/* Products Tab */}
-          <TabsContent value="products">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle>Manage Products</CardTitle>
-                  <Dialog open={isProductDialogOpen} onOpenChange={setIsProductDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button onClick={() => {
-                        setEditingProduct(null);
-                        productForm.reset();
-                        resetDialogStates();
-                      }}>
-                        <Plus className="h-4 w-4 mr-2" />
-                        Add Product
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-6xl max-h-[95vh] overflow-y-auto">
-                      <DialogHeader>
-                        <DialogTitle>
-                          {editingProduct ? "Edit Product" : "Add New Product"}
-                        </DialogTitle>
-                      </DialogHeader>
-                      <Form {...productForm}>
-                        <form onSubmit={productForm.handleSubmit(onProductSubmit)} className="space-y-6">
-                          {/* Basic Information */}
-                          <div className="grid grid-cols-2 gap-4">
-                            <FormField
-                              control={productForm.control}
-                              name="name"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Product Name</FormLabel>
-                                  <FormControl>
-                                    <Input {...field} />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={productForm.control}
-                              name="slug"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Slug</FormLabel>
-                                  <FormControl>
-                                    <Input {...field} />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                          </div>
-
-                          <FormField
-                            control={productForm.control}
-                            name="description"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Description</FormLabel>
-                                <FormControl>
-                                  <Textarea {...field} rows={3} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          {/* Pricing and Category */}
-                          <div className="grid grid-cols-3 gap-4">
-                            <FormField
-                              control={productForm.control}
-                              name="price"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Price</FormLabel>
-                                  <FormControl>
-                                    <Input type="number" step="0.01" {...field} />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={productForm.control}
-                              name="originalPrice"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Original Price</FormLabel>
-                                  <FormControl>
-                                    <Input type="number" step="0.01" {...field} />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={productForm.control}
-                              name="categoryId"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Category</FormLabel>
-                                  <Select onValueChange={(value) => field.onChange(Number(value))} value={field.value?.toString()}>
-                                    <FormControl>
-                                      <SelectTrigger>
-                                        <SelectValue placeholder="Select category" />
-                                      </SelectTrigger>
-                                    </FormControl>
-                                    <SelectContent>
-                                      {categories.map((category: any) => (
-                                        <SelectItem key={category.id} value={category.id.toString()}>
-                                          {category.name}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                          </div>
-
-                          {/* Supplier URL */}
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium flex items-center gap-2">
-                              <Link className="h-4 w-4" />
-                              Supplier URL
-                            </label>
-                            <Input
-                              type="url"
-                              placeholder="https://supplier-website.com/product"
-                              value={supplierUrl}
-                              onChange={(e) => setSupplierUrl(e.target.value)}
-                              className="w-full"
-                            />
-                          </div>
-
-                          {/* Stock and Status */}
-                          <div className="grid grid-cols-2 gap-4">
-                            <FormField
-                              control={productForm.control}
-                              name="stock"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Stock</FormLabel>
-                                  <FormControl>
-                                    <Input type="number" {...field} onChange={(e) => field.onChange(Number(e.target.value))} />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={productForm.control}
-                              name="status"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Status</FormLabel>
-                                  <Select onValueChange={field.onChange} value={field.value}>
-                                    <FormControl>
-                                      <SelectTrigger>
-                                        <SelectValue placeholder="Select status" />
-                                      </SelectTrigger>
-                                    </FormControl>
-                                    <SelectContent>
-                                      <SelectItem value="active">Active</SelectItem>
-                                      <SelectItem value="inactive">Inactive</SelectItem>
-                                      <SelectItem value="sold">Sold</SelectItem>
-                                      <SelectItem value="out_of_stock">Out of Stock</SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                          </div>
-
-                          {/* Images */}
-                          <div className="space-y-2">
-                            <FormLabel className="flex items-center gap-2">
-                              <ImageIcon className="h-4 w-4" />
-                              Product Images
-                            </FormLabel>
-                            <CloudinaryUpload
-                              images={watchedImages ?? []}
-                              onChange={urls => productForm.setValue("images", urls)}
-                            />
-                          </div>
-
-                          {/* Sizes Section */}
-                          <div className="space-y-4">
-                            <FormLabel className="flex items-center gap-2">
-                              <Ruler className="h-4 w-4" />
-                              Available Sizes
-                            </FormLabel>
-                            
-                            <div className="flex gap-2">
-                              <Input
-                                placeholder="Enter size (e.g., S, M, L, XL)"
-                                value={newSize}
-                                onChange={(e) => setNewSize(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddSize())}
-                                className="flex-1"
-                              />
-                              <Button type="button" onClick={handleAddSize} variant="outline">
-                                <Plus className="h-4 w-4 mr-2" />
-                                Add Size
-                              </Button>
-                            </div>
-
-                            {watchedSizes && watchedSizes.length > 0 && (
-                              <div className="flex flex-wrap gap-2">
-                                {watchedSizes.map((size, index) => (
-                                  <Badge key={index} variant="secondary" className="cursor-pointer hover:bg-red-100">
-                                    {size}
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-4 w-4 p-0 ml-2 hover:bg-transparent"
-                                      onClick={() => handleRemoveSize(size)}
-                                    >
-                                      <X className="h-3 w-3" />
-                                    </Button>
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Colors Section */}
-                          <div className="space-y-4">
-                            <FormLabel className="flex items-center gap-2">
-                              <Palette className="h-4 w-4" />
-                              Available Colors
-                            </FormLabel>
-                            
-                            <div className="flex gap-2">
-                              <Input
-                                placeholder="Enter color (e.g., Red, Blue, Black)"
-                                value={newColor}
-                                onChange={(e) => setNewColor(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddColor())}
-                                className="flex-1"
-                              />
-                              <Button type="button" onClick={handleAddColor} variant="outline">
-                                <Plus className="h-4 w-4 mr-2" />
-                                Add Color
-                              </Button>
-                            </div>
-
-                            {watchedColors && watchedColors.length > 0 && (
-                              <div className="flex flex-wrap gap-2">
-                                {watchedColors.map((color, index) => (
-                                  <Badge key={index} variant="secondary" className="cursor-pointer hover:bg-red-100">
-                                    {color}
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-4 w-4 p-0 ml-2 hover:bg-transparent"
-                                      onClick={() => handleRemoveColor(color)}
-                                    >
-                                      <X className="h-3 w-3" />
-                                    </Button>
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Checkboxes */}
-                          <div className="flex items-center space-x-6">
-                            <FormField
-                              control={productForm.control}
-                              name="featured"
-                              render={({ field }) => (
-                                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                                  <FormControl>
-                                    <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                                  </FormControl>
-                                  <FormLabel>Featured Product</FormLabel>
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={productForm.control}
-                              name="active"
-                              render={({ field }) => (
-                                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                                  <FormControl>
-                                    <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                                  </FormControl>
-                                  <FormLabel>Active</FormLabel>
-                                </FormItem>
-                              )}
-                            />
-                          </div>
-
-                          <Button type="submit" className="w-full" disabled={productMutation.isPending}>
-                            {productMutation.isPending ? "Saving..." : (editingProduct ? "Update Product" : "Create Product")}
-                          </Button>
-                        </form>
-                      </Form>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Product</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Price</TableHead>
-                      <TableHead>Stock</TableHead>
-                      <TableHead>Variants</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {products.map((product: Product) => (
-                      <TableRow key={product.id}>
-                        <TableCell>
-                          <div className="flex items-center space-x-3">
-                            <img 
-                              src={product.images?.[0] || "https://images.unsplash.com/photo-1542291026-7eec264c27ff?ixlib=rb-4.0.3&auto=format&fit=crop&w=60&h=60"} 
-                              alt={product.name}
-                              className="w-10 h-10 rounded object-cover"
-                            />
-                            <div>
-                              <div className="font-medium">{product.name}</div>
-                              <div className="text-sm text-gray-500">#{product.id}</div>
-                              {product.images && product.images.length > 1 && (
-                                <div className="text-xs text-blue-500">
-                                  +{product.images.length - 1} more images
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {categories.find((c: any) => c.id === product.categoryId)?.name || "Uncategorized"}
-                        </TableCell>
-                        <TableCell>
-                          <div>
-                            <div className="font-medium">${product.price}</div>
-                            {product.originalPrice && (
-                              <div className="text-sm text-gray-500 line-through">
-                                ${product.originalPrice}
-                              </div>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={product.stock > 0 ? "outline" : "destructive"}>
-                            {product.stock > 0 ? `${product.stock} in stock` : "Out of stock"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="space-y-1">
-                            {product.sizes && product.sizes.length > 0 && (
-                              <div className="text-xs">
-                                <span className="font-medium">Sizes:</span> {product.sizes.slice(0, 3).join(", ")}
-                                {product.sizes.length > 3 && ` +${product.sizes.length - 3}`}
-                              </div>
-                            )}
-                            {product.colors && product.colors.length > 0 && (
-                              <div className="text-xs">
-                                <span className="font-medium">Colors:</span> {product.colors.slice(0, 2).join(", ")}
-                                {product.colors.length > 2 && ` +${product.colors.length - 2}`}
-                              </div>
-                            )}
-                            {(!product.sizes || product.sizes.length === 0) && (!product.colors || product.colors.length === 0) && (
-                              <div className="text-xs text-gray-400">No variants</div>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex space-x-1">
-                            {product.featured && <Badge className="bg-secondary">Featured</Badge>}
-                            {getStatusBadge((product as any).status || "active", product.stock)}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex space-x-2">
-                            <Button size="sm" variant="outline" onClick={() => handleEditProduct(product)}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => handleDeleteProduct(product.id)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                            {(product as any).supplierUrl && (
-                              <Button 
-                                size="sm" 
-                                variant="outline" 
-                                onClick={() => window.open((product as any).supplierUrl, '_blank')}
-                              >
-                                <Link className="h-4 w-4" />
-                              </Button>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Orders Tab */}
-          <TabsContent value="orders">
-            <Card>
-              <CardHeader>
-                <CardTitle>Recent Orders</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Order ID</TableHead>
-                      <TableHead>Customer</TableHead>
-                      <TableHead>Total</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {orders.map((order: Order) => {
-                      const isReservation = order.status === "awaiting_confirmation";
-                      const isFarmOrder = !!order.fulfillmentType;
-                      return (
-                      <TableRow key={order.id} className={isReservation ? "bg-amber-50 border-l-4 border-l-amber-400" : ""}>
-                        <TableCell>#{order.id}</TableCell>
-                        <TableCell>
-                          <div>
-                            <div className="font-medium">{order.firstName} {order.lastName}</div>
-                            <div className="text-sm text-gray-500">{order.email}</div>
-                            {(order as any).phone && <div className="text-xs text-gray-400">{(order as any).phone}</div>}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div>
-                            <div>${order.total}</div>
-                            {(order as any).depositAmount && (
-                              <div className="text-xs text-amber-600">
-                                Deposit: ${(order as any).depositAmount}
-                              </div>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={
-                              order.status === "pending" ? "secondary"
-                              : order.status === "awaiting_confirmation" ? "outline"
-                              : "outline"
-                            }
-                            className={
-                              order.status === "awaiting_confirmation" ? "border-amber-500 text-amber-700 bg-amber-50"
-                              : order.status === "confirmed" ? "border-green-500 text-green-700"
-                              : order.status === "cancelled" ? "border-red-400 text-red-600"
-                              : order.status === "delivered" ? "border-blue-500 text-blue-700"
-                              : ""
-                            }
-                          >
-                            {order.status === "awaiting_confirmation" ? "⏳ Awaiting Confirmation" : order.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {new Date(order.createdAt!).toLocaleDateString()}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-1">
-                            {isReservation && (
-                              <>
-                                <Button
-                                  size="sm"
-                                  className="bg-green-600 hover:bg-green-700 text-white text-xs px-2"
-                                  disabled={confirmReservationMutation.isPending}
-                                  onClick={() => confirmReservationMutation.mutate({ id: order.id, action: "confirmed" })}
-                                >
-                                  Confirm
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  className="text-xs px-2"
-                                  disabled={confirmReservationMutation.isPending}
-                                  onClick={() => confirmReservationMutation.mutate({ id: order.id, action: "cancelled" })}
-                                >
-                                  Reject
-                                </Button>
-                              </>
-                            )}
-                            {isFarmOrder && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="text-xs px-2 border-orange-400 text-orange-600 hover:bg-orange-50"
-                                disabled={resendToERMMutation.isPending}
-                                onClick={() => resendToERMMutation.mutate(order.id)}
-                                title="Resend this order notification to ERM"
-                              >
-                                <RefreshCw className="h-3 w-3 mr-1" />
-                                ERM
-                              </Button>
-                            )}
-                            <Dialog open={isOrderDialogOpen} onOpenChange={setIsOrderDialogOpen}>
-                              <DialogTrigger asChild>
-                                <Button size="sm" variant="outline" onClick={() => handleEditOrder(order)}>
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>Update Order Status</DialogTitle>
-                                </DialogHeader>
-                                <Form {...orderForm}>
-                                  <form onSubmit={orderForm.handleSubmit(onOrderSubmit)} className="space-y-4">
-                                    <FormField
-                                      control={orderForm.control}
-                                      name="status"
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <FormLabel>Status</FormLabel>
-                                          <Select onValueChange={field.onChange} value={field.value}>
-                                            <FormControl>
-                                              <SelectTrigger>
-                                                <SelectValue placeholder="Select status" />
-                                              </SelectTrigger>
-                                            </FormControl>
-                                            <SelectContent>
-                                              <SelectItem value="awaiting_confirmation">Awaiting Confirmation</SelectItem>
-                                              <SelectItem value="confirmed">Confirmed</SelectItem>
-                                              <SelectItem value="pending">Pending</SelectItem>
-                                              <SelectItem value="processing">Processing</SelectItem>
-                                              <SelectItem value="shipped">Shipped</SelectItem>
-                                              <SelectItem value="delivered">Delivered</SelectItem>
-                                              <SelectItem value="cancelled">Cancelled</SelectItem>
-                                            </SelectContent>
-                                          </Select>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
-                                    <Button type="submit" className="w-full" disabled={updateOrderMutation.isPending}>
-                                      {updateOrderMutation.isPending ? "Updating..." : "Update Status"}
-                                    </Button>
-                                  </form>
-                                </Form>
-                              </DialogContent>
-                            </Dialog>
-                            <Button size="sm" variant="outline" onClick={() => handleDeleteOrder(order.id)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Messages Tab */}
-          <TabsContent value="messages">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Mail className="h-5 w-5 mr-2" />
-                  Contact Messages
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Subject</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {messages.map((message: ContactMessage) => (
-                      <TableRow key={message.id}>
-                        <TableCell className="font-medium">{message.name}</TableCell>
-                        <TableCell>{message.email}</TableCell>
-                        <TableCell>{message.subject}</TableCell>
-                        <TableCell>
-                          <Badge variant={message.status === "unread" ? "destructive" : "outline"}>
-                            {message.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {new Date(message.createdAt!).toLocaleDateString()}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex space-x-2">
-                            <Button size="sm" variant="outline">
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            <Dialog open={isMessageDialogOpen} onOpenChange={setIsMessageDialogOpen}>
-                              <DialogTrigger asChild>
-                                <Button size="sm" variant="outline" onClick={() => handleEditMessage(message)}>
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>Update Message Status</DialogTitle>
-                                </DialogHeader>
-                                <Form {...messageForm}>
-                                  <form onSubmit={messageForm.handleSubmit(onMessageSubmit)} className="space-y-4">
-                                    <FormField
-                                      control={messageForm.control}
-                                      name="status"
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <FormLabel>Status</FormLabel>
-                                          <Select onValueChange={field.onChange} value={field.value}>
-                                            <FormControl>
-                                              <SelectTrigger>
-                                                <SelectValue placeholder="Select status" />
-                                              </SelectTrigger>
-                                            </FormControl>
-                                            <SelectContent>
-                                              <SelectItem value="unread">Unread</SelectItem>
-                                              <SelectItem value="read">Read</SelectItem>
-                                              <SelectItem value="replied">Replied</SelectItem>
-                                            </SelectContent>
-                                          </Select>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
-                                    <Button type="submit" className="w-full" disabled={updateMessageMutation.isPending}>
-                                      {updateMessageMutation.isPending ? "Updating..." : "Update Status"}
-                                    </Button>
-                                  </form>
-                                </Form>
-                              </DialogContent>
-                            </Dialog>
-                            <Button size="sm" variant="outline" onClick={() => handleDeleteMessage(message.id)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Farm Market Tab */}
-          <TabsContent value="farm-market">
-            <div className="space-y-6">
-              {/* Sync card */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Tractor className="h-5 w-5 text-green-600" />
-                    ERM Farm Marketplace Sync
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <p className="text-sm text-gray-600">
-                    Pull the latest listings from the ERM farm marketplace into the shop. New products are created, existing ones are updated, and sold-out listings are deactivated.
-                  </p>
-
-                  <Button
-                    onClick={() => ermSyncMutation.mutate()}
-                    disabled={ermSyncMutation.isPending}
-                    className="bg-green-600 hover:bg-green-700"
-                  >
-                    <RefreshCw className={`h-4 w-4 mr-2 ${ermSyncMutation.isPending ? "animate-spin" : ""}`} />
-                    {ermSyncMutation.isPending ? "Syncing…" : "Sync Now"}
-                  </Button>
-
-                  {/* Last sync result */}
-                  {syncResult && (
-                    <div className="flex items-start gap-2 rounded-lg bg-green-50 border border-green-200 p-4">
-                      <CheckCircle2 className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
-                      <div className="text-sm text-green-800 space-y-1">
-                        <p className="font-semibold">Last sync result</p>
-                        <div className="flex gap-4">
-                          <span><strong>{syncResult.created}</strong> created</span>
-                          <span><strong>{syncResult.updated}</strong> updated</span>
-                          <span><strong>{syncResult.deactivated}</strong> deactivated</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* ERM connection status */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">ERM Connection Status</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {ermStatus ? (
-                    <div className="space-y-3 text-sm">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="h-5 w-5 text-green-500" />
-                        <span className="font-medium text-gray-800">ERM API configured</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-gray-600">
-                        <span className="font-medium">API URL</span>
-                        <span className="truncate text-xs">{ermStatus.ermApiUrl}</span>
-                        <span className="font-medium">Auto-sync</span>
-                        <span>{ermStatus.autoSyncEnabled ? `Every ${ermStatus.syncIntervalMinutes} min` : "Disabled"}</span>
-                        <span className="font-medium">Order notifications</span>
-                        <span>{ermStatus.orderNotifyEnabled ? "Enabled" : "Disabled"}</span>
-                      </div>
-                      {!ermStatus.autoSyncEnabled && (
-                        <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
-                          <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                          <span>Auto-sync is off. Set <strong>ERM_AUTO_SYNC=true</strong> in your Render environment variables to enable it.</span>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-500">Loading ERM status…</p>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-          {/* Sellers Tab */}
-          <TabsContent value="sellers">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Store className="h-5 w-5" /> Seller Applications
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {(sellers as any[]).length === 0 ? (
-                  <p className="text-center text-gray-500 py-8">No seller applications yet.</p>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Store</TableHead>
-                        <TableHead>Owner</TableHead>
-                        <TableHead>Contact</TableHead>
-                        <TableHead>Applied</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(sellers as any[]).map((seller) => (
-                        <TableRow key={seller.id}>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              {seller.logoUrl ? (
-                                <img src={seller.logoUrl} alt="" className="w-8 h-8 rounded-full object-cover" />
-                              ) : (
-                                <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
-                                  <Store className="h-4 w-4 text-gray-500" />
-                                </div>
-                              )}
-                              <div>
-                                <p className="font-medium text-sm">{seller.storeName}</p>
-                                <p className="text-xs text-gray-500 max-w-[160px] truncate">{seller.description}</p>
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <p className="text-sm">{seller.user?.firstName} {seller.user?.lastName}</p>
-                            <p className="text-xs text-gray-500">{seller.user?.email}</p>
-                          </TableCell>
-                          <TableCell>
-                            <p className="text-xs">{seller.phone}</p>
-                            <p className="text-xs text-gray-500">{seller.address}</p>
-                          </TableCell>
-                          <TableCell className="text-xs text-gray-500">
-                            {new Date(seller.createdAt).toLocaleDateString()}
-                          </TableCell>
-                          <TableCell>
-                            <Badge className={
-                              seller.status === "approved" ? "bg-green-100 text-green-700"
-                              : seller.status === "rejected" ? "bg-red-100 text-red-700"
-                              : seller.status === "suspended" ? "bg-orange-100 text-orange-700"
-                              : "bg-amber-100 text-amber-700"
-                            }>
-                              {seller.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-1">
-                              {seller.status !== "approved" && (
-                                <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white text-xs px-2 gap-1"
-                                  disabled={sellerStatusMutation.isPending}
-                                  onClick={() => sellerStatusMutation.mutate({ id: seller.id, status: "approved" })}>
-                                  <CheckCircle className="h-3 w-3" /> Approve
-                                </Button>
-                              )}
-                              {seller.status === "approved" && (
-                                <Button size="sm" variant="outline" className="text-xs px-2 gap-1 border-orange-400 text-orange-600"
-                                  disabled={sellerStatusMutation.isPending}
-                                  onClick={() => sellerStatusMutation.mutate({ id: seller.id, status: "suspended" })}>
-                                  Suspend
-                                </Button>
-                              )}
-                              {seller.status === "pending" && (
-                                <Button size="sm" variant="destructive" className="text-xs px-2 gap-1"
-                                  disabled={sellerStatusMutation.isPending}
-                                  onClick={() => sellerStatusMutation.mutate({ id: seller.id, status: "rejected" })}>
-                                  <XCircle className="h-3 w-3" /> Reject
-                                </Button>
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+  // ── Overview section ──────────────────────────────────────────────────────────
+  const overviewSection = (
+    <div className="space-y-6">
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard label="Total Products" value={(stats as any)?.totalProducts ?? products.length} icon={Package} color="bg-blue-500" sub="in catalogue" />
+        <StatCard label="Total Orders" value={(stats as any)?.totalOrders ?? orders.length} icon={ShoppingCart} color="bg-emerald-500" sub={`${pendingOrders} pending`} />
+        <StatCard label="Customers" value={(stats as any)?.totalCustomers ?? "—"} icon={Users} color="bg-violet-500" sub="registered users" />
+        <StatCard label="Revenue" value={`$${((stats as any)?.revenue ?? 0).toFixed(2)}`} icon={DollarSign} color="bg-amber-500" sub="all time" />
       </div>
 
-      <Footer />
+      {/* Charts row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Revenue bar chart */}
+        <Card className="col-span-1 lg:col-span-2 border-0 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold text-gray-700">Revenue — Last 6 Months</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={revenueByMonth} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
+                <ChartTooltip formatter={(v: number) => [`$${v.toFixed(2)}`, "Revenue"]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                <Bar dataKey="revenue" fill="#10b981" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        {/* Order status pie */}
+        <Card className="border-0 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold text-gray-700">Orders by Status</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {ordersByStatus.length > 0 ? (
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Pie data={ordersByStatus} cx="50%" cy="45%" innerRadius={55} outerRadius={80} paddingAngle={3} dataKey="value">
+                    {ordersByStatus.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                  </Pie>
+                  <ChartTooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                  <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[220px] text-gray-400 text-sm">No orders yet</div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Order activity area chart */}
+      <Card className="border-0 shadow-sm">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold text-gray-700">Order Activity — Last 14 Days</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ResponsiveContainer width="100%" height={160}>
+            <AreaChart data={ordersByDay} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+              <defs>
+                <linearGradient id="orderGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
+                  <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="day" tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} interval={1} />
+              <YAxis tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false} />
+              <ChartTooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+              <Area type="monotone" dataKey="orders" stroke="#10b981" strokeWidth={2} fill="url(#orderGrad)" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+
+      {/* Recent orders */}
+      <Card className="border-0 shadow-sm">
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardTitle className="text-sm font-semibold text-gray-700">Recent Orders</CardTitle>
+          <Button variant="ghost" size="sm" className="text-xs text-emerald-600" onClick={() => setSection("orders")}>View all</Button>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-b border-gray-100">
+                <TableHead className="text-xs pl-6">Order</TableHead>
+                <TableHead className="text-xs">Customer</TableHead>
+                <TableHead className="text-xs">Total</TableHead>
+                <TableHead className="text-xs">Status</TableHead>
+                <TableHead className="text-xs pr-6">Date</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(orders as Order[]).slice(0, 5).map((o) => (
+                <TableRow key={o.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                  <TableCell className="pl-6 font-mono text-xs text-gray-500">#{o.id}</TableCell>
+                  <TableCell className="text-sm font-medium">{o.firstName} {o.lastName}</TableCell>
+                  <TableCell className="text-sm font-semibold">${o.total}</TableCell>
+                  <TableCell>
+                    <Badge className={`text-xs ${
+                      o.status === "delivered" ? "bg-emerald-100 text-emerald-700"
+                      : o.status === "awaiting_confirmation" ? "bg-amber-100 text-amber-700"
+                      : o.status === "cancelled" ? "bg-red-100 text-red-700"
+                      : "bg-blue-100 text-blue-700"
+                    }`}>{STATUS_LABEL[o.status] || o.status}</Badge>
+                  </TableCell>
+                  <TableCell className="text-xs text-gray-400 pr-6">{new Date(o.createdAt!).toLocaleDateString()}</TableCell>
+                </TableRow>
+              ))}
+              {orders.length === 0 && (
+                <TableRow><TableCell colSpan={5} className="text-center text-sm text-gray-400 py-8">No orders yet</TableCell></TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
+  // ── Products section ──────────────────────────────────────────────────────────
+  const productDialog = (
+    <Dialog open={isProductDialogOpen} onOpenChange={setIsProductDialogOpen}>
+      <DialogTrigger asChild>
+        <Button onClick={() => { setEditingProduct(null); productForm.reset(); setNewSize(""); setNewColor(""); setSupplierUrl(""); }} className="gap-2">
+          <Plus className="h-4 w-4" /> Add Product
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{editingProduct ? "Edit Product" : "Add New Product"}</DialogTitle>
+        </DialogHeader>
+        <Form {...productForm}>
+          <form onSubmit={productForm.handleSubmit((d) => productMutation.mutate({ ...d, supplierUrl: supplierUrl || undefined }))} className="space-y-5">
+            <div className="grid grid-cols-2 gap-4">
+              <FormField control={productForm.control} name="name" render={({ field }) => (
+                <FormItem><FormLabel>Product Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={productForm.control} name="slug" render={({ field }) => (
+                <FormItem><FormLabel>Slug</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
+            </div>
+            <FormField control={productForm.control} name="description" render={({ field }) => (
+              <FormItem><FormLabel>Description</FormLabel><FormControl><Textarea {...field} rows={3} /></FormControl><FormMessage /></FormItem>
+            )} />
+            <div className="grid grid-cols-3 gap-4">
+              <FormField control={productForm.control} name="price" render={({ field }) => (
+                <FormItem><FormLabel>Price</FormLabel><FormControl><Input type="number" step="0.01" {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={productForm.control} name="originalPrice" render={({ field }) => (
+                <FormItem><FormLabel>Original Price</FormLabel><FormControl><Input type="number" step="0.01" {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={productForm.control} name="categoryId" render={({ field }) => (
+                <FormItem><FormLabel>Category</FormLabel>
+                  <Select onValueChange={(v) => field.onChange(Number(v))} value={field.value?.toString()}>
+                    <FormControl><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger></FormControl>
+                    <SelectContent>{(categories as any[]).map((c: any) => <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>)}</SelectContent>
+                  </Select><FormMessage />
+                </FormItem>
+              )} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium flex items-center gap-2"><Link className="h-4 w-4" />Supplier URL</label>
+              <Input type="url" placeholder="https://supplier.com/product" value={supplierUrl} onChange={(e) => setSupplierUrl(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <FormField control={productForm.control} name="stock" render={({ field }) => (
+                <FormItem><FormLabel>Stock</FormLabel><FormControl><Input type="number" {...field} onChange={(e) => field.onChange(Number(e.target.value))} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={productForm.control} name="status" render={({ field }) => (
+                <FormItem><FormLabel>Status</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                    <SelectContent>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="inactive">Inactive</SelectItem>
+                      <SelectItem value="sold">Sold</SelectItem>
+                      <SelectItem value="out_of_stock">Out of Stock</SelectItem>
+                    </SelectContent>
+                  </Select><FormMessage />
+                </FormItem>
+              )} />
+            </div>
+            <div className="space-y-2">
+              <FormLabel className="flex items-center gap-2"><ImageIcon className="h-4 w-4" />Product Images</FormLabel>
+              <CloudinaryUpload images={watchedImages ?? []} onChange={(urls) => productForm.setValue("images", urls)} />
+            </div>
+            <div className="space-y-3">
+              <FormLabel className="flex items-center gap-2"><Ruler className="h-4 w-4" />Available Sizes</FormLabel>
+              <div className="flex gap-2">
+                <Input placeholder="S, M, L, XL…" value={newSize} onChange={(e) => setNewSize(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), newSize.trim() && (productForm.setValue("sizes", [...(productForm.getValues("sizes") || []), newSize.trim()]), setNewSize("")))} />
+                <Button type="button" variant="outline" onClick={() => { if (newSize.trim()) { productForm.setValue("sizes", [...(productForm.getValues("sizes") || []), newSize.trim()]); setNewSize(""); } }}>Add</Button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {(watchedSizes || []).map((s, i) => (
+                  <Badge key={i} variant="secondary" className="gap-1">{s}
+                    <button type="button" onClick={() => productForm.setValue("sizes", (watchedSizes || []).filter((_, j) => j !== i))}><X className="h-3 w-3" /></button>
+                  </Badge>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-3">
+              <FormLabel className="flex items-center gap-2"><Palette className="h-4 w-4" />Available Colors</FormLabel>
+              <div className="flex gap-2">
+                <Input placeholder="Red, Blue…" value={newColor} onChange={(e) => setNewColor(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), newColor.trim() && (productForm.setValue("colors", [...(productForm.getValues("colors") || []), newColor.trim()]), setNewColor("")))} />
+                <Button type="button" variant="outline" onClick={() => { if (newColor.trim()) { productForm.setValue("colors", [...(productForm.getValues("colors") || []), newColor.trim()]); setNewColor(""); } }}>Add</Button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {(watchedColors || []).map((c, i) => (
+                  <Badge key={i} variant="secondary" className="gap-1">{c}
+                    <button type="button" onClick={() => productForm.setValue("colors", (watchedColors || []).filter((_, j) => j !== i))}><X className="h-3 w-3" /></button>
+                  </Badge>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center gap-6">
+              <FormField control={productForm.control} name="featured" render={({ field }) => (
+                <FormItem className="flex items-center gap-2 space-y-0"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl><FormLabel className="font-normal">Featured</FormLabel></FormItem>
+              )} />
+              <FormField control={productForm.control} name="active" render={({ field }) => (
+                <FormItem className="flex items-center gap-2 space-y-0"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl><FormLabel className="font-normal">Active</FormLabel></FormItem>
+              )} />
+            </div>
+            <Button type="submit" className="w-full" disabled={productMutation.isPending}>
+              {productMutation.isPending ? "Saving…" : editingProduct ? "Update Product" : "Create Product"}
+            </Button>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+
+  const productsSection = (
+    <Card className="border-0 shadow-sm">
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="text-base">Products ({products.length})</CardTitle>
+        {productDialog}
+      </CardHeader>
+      <CardContent className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow className="border-b border-gray-100">
+              <TableHead className="pl-6 text-xs">Product</TableHead>
+              <TableHead className="text-xs">Category</TableHead>
+              <TableHead className="text-xs">Price</TableHead>
+              <TableHead className="text-xs">Stock</TableHead>
+              <TableHead className="text-xs">Status</TableHead>
+              <TableHead className="text-xs pr-6">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(products as Product[]).map((p) => (
+              <TableRow key={p.id} className="hover:bg-gray-50/50 border-b border-gray-50">
+                <TableCell className="pl-6">
+                  <div className="flex items-center gap-3">
+                    <img src={p.images?.[0] || "https://placehold.co/40x40/e5e7eb/9ca3af?text=?"} alt={p.name} className="w-9 h-9 rounded-lg object-cover" />
+                    <div>
+                      <p className="text-sm font-medium">{p.name}</p>
+                      <p className="text-xs text-gray-400">#{p.id}</p>
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell className="text-sm text-gray-600">{(categories as any[]).find((c: any) => c.id === p.categoryId)?.name || "—"}</TableCell>
+                <TableCell>
+                  <p className="text-sm font-semibold">${p.price}</p>
+                  {p.originalPrice && <p className="text-xs text-gray-400 line-through">${p.originalPrice}</p>}
+                </TableCell>
+                <TableCell>
+                  <Badge variant={p.stock > 0 ? "outline" : "destructive"} className="text-xs">{p.stock > 0 ? `${p.stock}` : "0"}</Badge>
+                </TableCell>
+                <TableCell>
+                  <div className="flex gap-1 flex-wrap">
+                    {p.featured && <Badge className="text-xs bg-amber-100 text-amber-700">Featured</Badge>}
+                    {getStatusBadge((p as any).status || "active", p.stock)}
+                  </div>
+                </TableCell>
+                <TableCell className="pr-6">
+                  <div className="flex gap-1">
+                    <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => handleEditProduct(p)}><Edit className="h-3.5 w-3.5" /></Button>
+                    <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-500 hover:text-red-700" onClick={() => confirm("Delete product?") && deleteProductMutation.mutate(p.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                    {(p as any).supplierUrl && <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => window.open((p as any).supplierUrl, "_blank")}><ExternalLink className="h-3.5 w-3.5" /></Button>}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+
+  // ── Orders section ────────────────────────────────────────────────────────────
+  const ordersSection = (
+    <Card className="border-0 shadow-sm">
+      <CardHeader>
+        <CardTitle className="text-base">Orders ({orders.length})</CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow className="border-b border-gray-100">
+              <TableHead className="pl-6 text-xs">ID</TableHead>
+              <TableHead className="text-xs">Customer</TableHead>
+              <TableHead className="text-xs">Total</TableHead>
+              <TableHead className="text-xs">Status</TableHead>
+              <TableHead className="text-xs">Date</TableHead>
+              <TableHead className="text-xs pr-6">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(orders as Order[]).map((o) => {
+              const isReservation = o.status === "awaiting_confirmation";
+              const isFarm = !!(o as any).fulfillmentType;
+              return (
+                <TableRow key={o.id} className={`hover:bg-gray-50/50 border-b border-gray-50 ${isReservation ? "bg-amber-50/50" : ""}`}>
+                  <TableCell className="pl-6 font-mono text-xs text-gray-500">#{o.id}</TableCell>
+                  <TableCell>
+                    <p className="text-sm font-medium">{o.firstName} {o.lastName}</p>
+                    <p className="text-xs text-gray-400">{o.email}</p>
+                  </TableCell>
+                  <TableCell>
+                    <p className="text-sm font-semibold">${o.total}</p>
+                    {(o as any).depositAmount && <p className="text-xs text-amber-600">Deposit: ${(o as any).depositAmount}</p>}
+                  </TableCell>
+                  <TableCell>
+                    <Badge className={`text-xs ${
+                      o.status === "delivered" ? "bg-emerald-100 text-emerald-700"
+                      : o.status === "awaiting_confirmation" ? "bg-amber-100 text-amber-700"
+                      : o.status === "cancelled" ? "bg-red-100 text-red-700"
+                      : o.status === "confirmed" ? "bg-green-100 text-green-700"
+                      : "bg-blue-100 text-blue-700"
+                    }`}>{STATUS_LABEL[o.status] || o.status}</Badge>
+                  </TableCell>
+                  <TableCell className="text-xs text-gray-400">{new Date(o.createdAt!).toLocaleDateString()}</TableCell>
+                  <TableCell className="pr-6">
+                    <div className="flex gap-1 flex-wrap">
+                      {isReservation && <>
+                        <Button size="sm" className="h-7 px-2 text-xs bg-emerald-600 hover:bg-emerald-700" onClick={() => confirmReservationMutation.mutate({ id: o.id, action: "confirmed" })}>Confirm</Button>
+                        <Button size="sm" variant="destructive" className="h-7 px-2 text-xs" onClick={() => confirmReservationMutation.mutate({ id: o.id, action: "cancelled" })}>Reject</Button>
+                      </>}
+                      {isFarm && <Button size="sm" variant="outline" className="h-7 px-2 text-xs border-orange-300 text-orange-600" onClick={() => resendToERMMutation.mutate(o.id)}>
+                        <RefreshCw className="h-3 w-3 mr-1" />ERM
+                      </Button>}
+                      <Dialog open={isOrderDialogOpen} onOpenChange={setIsOrderDialogOpen}>
+                        <DialogTrigger asChild>
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditingOrder(o); orderForm.reset({ status: o.status }); setIsOrderDialogOpen(true); }}><Edit className="h-3.5 w-3.5" /></Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader><DialogTitle>Update Order #{editingOrder?.id}</DialogTitle></DialogHeader>
+                          <Form {...orderForm}>
+                            <form onSubmit={orderForm.handleSubmit((d) => editingOrder && updateOrderMutation.mutate({ id: editingOrder.id, status: d.status }))} className="space-y-4">
+                              <FormField control={orderForm.control} name="status" render={({ field }) => (
+                                <FormItem><FormLabel>Status</FormLabel>
+                                  <Select onValueChange={field.onChange} value={field.value}>
+                                    <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                                    <SelectContent>
+                                      {["awaiting_confirmation","confirmed","pending","processing","shipped","delivered","cancelled"].map((s) => <SelectItem key={s} value={s}>{STATUS_LABEL[s] || s}</SelectItem>)}
+                                    </SelectContent>
+                                  </Select><FormMessage />
+                                </FormItem>
+                              )} />
+                              <Button type="submit" className="w-full" disabled={updateOrderMutation.isPending}>Update</Button>
+                            </form>
+                          </Form>
+                        </DialogContent>
+                      </Dialog>
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => confirm("Delete order?") && deleteOrderMutation.mutate(o.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+
+  // ── Messages section ──────────────────────────────────────────────────────────
+  const messagesSection = (
+    <Card className="border-0 shadow-sm">
+      <CardHeader><CardTitle className="text-base">Contact Messages</CardTitle></CardHeader>
+      <CardContent className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow className="border-b border-gray-100">
+              <TableHead className="pl-6 text-xs">Name</TableHead>
+              <TableHead className="text-xs">Email</TableHead>
+              <TableHead className="text-xs">Subject</TableHead>
+              <TableHead className="text-xs">Status</TableHead>
+              <TableHead className="text-xs">Date</TableHead>
+              <TableHead className="text-xs pr-6">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(messages as ContactMessage[]).map((m) => (
+              <TableRow key={m.id} className={`hover:bg-gray-50/50 border-b border-gray-50 ${m.status === "unread" ? "font-medium" : ""}`}>
+                <TableCell className="pl-6 text-sm">{m.name}</TableCell>
+                <TableCell className="text-sm text-gray-600">{m.email}</TableCell>
+                <TableCell className="text-sm max-w-[180px] truncate">{m.subject}</TableCell>
+                <TableCell>
+                  <Badge className={`text-xs ${m.status === "unread" ? "bg-red-100 text-red-700" : m.status === "replied" ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-600"}`}>{m.status}</Badge>
+                </TableCell>
+                <TableCell className="text-xs text-gray-400">{new Date(m.createdAt!).toLocaleDateString()}</TableCell>
+                <TableCell className="pr-6">
+                  <div className="flex gap-1">
+                    <Dialog open={isMessageDialogOpen} onOpenChange={setIsMessageDialogOpen}>
+                      <DialogTrigger asChild>
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditingMessage(m); messageForm.reset({ status: m.status }); setIsMessageDialogOpen(true); }}><Edit className="h-3.5 w-3.5" /></Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader><DialogTitle>Message from {editingMessage?.name}</DialogTitle></DialogHeader>
+                        {editingMessage && <p className="text-sm text-gray-600 bg-gray-50 rounded-lg p-3 my-2">{(editingMessage as any).message}</p>}
+                        <Form {...messageForm}>
+                          <form onSubmit={messageForm.handleSubmit((d) => editingMessage && updateMessageMutation.mutate({ id: editingMessage.id, status: d.status }))} className="space-y-4">
+                            <FormField control={messageForm.control} name="status" render={({ field }) => (
+                              <FormItem><FormLabel>Status</FormLabel>
+                                <Select onValueChange={field.onChange} value={field.value}>
+                                  <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                                  <SelectContent>
+                                    <SelectItem value="unread">Unread</SelectItem>
+                                    <SelectItem value="read">Read</SelectItem>
+                                    <SelectItem value="replied">Replied</SelectItem>
+                                  </SelectContent>
+                                </Select><FormMessage />
+                              </FormItem>
+                            )} />
+                            <Button type="submit" className="w-full" disabled={updateMessageMutation.isPending}>Update</Button>
+                          </form>
+                        </Form>
+                      </DialogContent>
+                    </Dialog>
+                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => confirm("Delete message?") && deleteMessageMutation.mutate(m.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+
+  // ── Sellers section ───────────────────────────────────────────────────────────
+  const sellersSection = (
+    <Card className="border-0 shadow-sm">
+      <CardHeader><CardTitle className="text-base">Seller Applications ({(sellers as any[]).length})</CardTitle></CardHeader>
+      <CardContent className="p-0">
+        {(sellers as any[]).length === 0 ? (
+          <p className="text-center text-sm text-gray-400 py-10">No seller applications yet.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="border-b border-gray-100">
+                <TableHead className="pl-6 text-xs">Store</TableHead>
+                <TableHead className="text-xs">Owner</TableHead>
+                <TableHead className="text-xs">Contact</TableHead>
+                <TableHead className="text-xs">Applied</TableHead>
+                <TableHead className="text-xs">Status</TableHead>
+                <TableHead className="text-xs pr-6">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(sellers as any[]).map((s) => (
+                <TableRow key={s.id} className="hover:bg-gray-50/50 border-b border-gray-50">
+                  <TableCell className="pl-6">
+                    <div className="flex items-center gap-2">
+                      {s.logoUrl ? <img src={s.logoUrl} className="w-8 h-8 rounded-lg object-cover" alt="" />
+                        : <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center"><Store className="h-4 w-4 text-gray-400" /></div>}
+                      <div>
+                        <p className="text-sm font-medium">{s.storeName}</p>
+                        <p className="text-xs text-gray-400 max-w-[140px] truncate">{s.description}</p>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <p className="text-sm">{s.user?.firstName} {s.user?.lastName}</p>
+                    <p className="text-xs text-gray-400">{s.user?.email}</p>
+                  </TableCell>
+                  <TableCell><p className="text-xs">{s.phone}</p><p className="text-xs text-gray-400">{s.address}</p></TableCell>
+                  <TableCell className="text-xs text-gray-400">{new Date(s.createdAt).toLocaleDateString()}</TableCell>
+                  <TableCell>
+                    <Badge className={`text-xs ${s.status === "approved" ? "bg-emerald-100 text-emerald-700" : s.status === "rejected" ? "bg-red-100 text-red-700" : s.status === "suspended" ? "bg-orange-100 text-orange-700" : "bg-amber-100 text-amber-700"}`}>{s.status}</Badge>
+                  </TableCell>
+                  <TableCell className="pr-6">
+                    <div className="flex gap-1">
+                      {s.status !== "approved" && <Button size="sm" className="h-7 px-2 text-xs bg-emerald-600 hover:bg-emerald-700 gap-1" disabled={sellerStatusMutation.isPending} onClick={() => sellerStatusMutation.mutate({ id: s.id, status: "approved" })}><CheckCircle className="h-3 w-3" />Approve</Button>}
+                      {s.status === "approved" && <Button size="sm" variant="outline" className="h-7 px-2 text-xs border-orange-300 text-orange-600" disabled={sellerStatusMutation.isPending} onClick={() => sellerStatusMutation.mutate({ id: s.id, status: "suspended" })}>Suspend</Button>}
+                      {s.status === "pending" && <Button size="sm" variant="destructive" className="h-7 px-2 text-xs gap-1" disabled={sellerStatusMutation.isPending} onClick={() => sellerStatusMutation.mutate({ id: s.id, status: "rejected" })}><XCircle className="h-3 w-3" />Reject</Button>}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+
+  // ── Farm section ──────────────────────────────────────────────────────────────
+  const farmSection = (
+    <div className="space-y-4">
+      <Card className="border-0 shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2"><Tractor className="h-4 w-4 text-emerald-600" />ERM Farm Marketplace Sync</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-gray-500">Pull the latest listings from ERM. New products are created, existing ones updated, sold-out listings deactivated.</p>
+          <Button onClick={() => ermSyncMutation.mutate()} disabled={ermSyncMutation.isPending} className="bg-emerald-600 hover:bg-emerald-700 gap-2">
+            <RefreshCw className={`h-4 w-4 ${ermSyncMutation.isPending ? "animate-spin" : ""}`} />
+            {ermSyncMutation.isPending ? "Syncing…" : "Sync Now"}
+          </Button>
+          {syncResult && (
+            <div className="flex gap-4 rounded-lg bg-emerald-50 border border-emerald-100 p-4 text-sm text-emerald-800">
+              <CheckCircle2 className="h-5 w-5 flex-shrink-0" />
+              <div><p className="font-semibold mb-1">Sync complete</p>
+                <div className="flex gap-4 text-xs"><span><strong>{syncResult.created}</strong> created</span><span><strong>{syncResult.updated}</strong> updated</span><span><strong>{syncResult.deactivated}</strong> deactivated</span></div>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      <Card className="border-0 shadow-sm">
+        <CardHeader><CardTitle className="text-base">ERM Connection Status</CardTitle></CardHeader>
+        <CardContent>
+          {ermStatus ? (
+            <div className="space-y-3 text-sm">
+              <div className="flex items-center gap-2 text-emerald-600"><CheckCircle2 className="h-4 w-4" /><span className="font-medium">ERM API configured</span></div>
+              <div className="grid grid-cols-2 gap-y-1.5 gap-x-6 text-xs text-gray-600">
+                <span className="font-medium text-gray-700">API URL</span><span className="truncate">{ermStatus.ermApiUrl}</span>
+                <span className="font-medium text-gray-700">Auto-sync</span><span>{ermStatus.autoSyncEnabled ? `Every ${ermStatus.syncIntervalMinutes} min` : "Disabled"}</span>
+                <span className="font-medium text-gray-700">Order notifications</span><span>{ermStatus.orderNotifyEnabled ? "Enabled" : "Disabled"}</span>
+              </div>
+              {!ermStatus.autoSyncEnabled && (
+                <div className="flex gap-2 rounded-md bg-amber-50 border border-amber-100 p-3 text-xs text-amber-700">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  <span>Set <strong>ERM_AUTO_SYNC=true</strong> in Render environment variables to enable auto-sync.</span>
+                </div>
+              )}
+            </div>
+          ) : <p className="text-sm text-gray-400">Loading…</p>}
+        </CardContent>
+      </Card>
+    </div>
+  );
+
+  const SECTION_TITLES: Record<Section, string> = {
+    overview: "Overview", products: "Products", orders: "Orders",
+    messages: "Messages", sellers: "Sellers", farm: "Farm Market",
+  };
+
+  // ── Full layout ───────────────────────────────────────────────────────────────
+  return (
+    <div className="flex h-screen bg-gray-50 overflow-hidden">
+      {/* Mobile overlay */}
+      {sidebarOpen && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />}
+
+      {/* Sidebar */}
+      <div className={`fixed inset-y-0 left-0 z-50 w-60 transform transition-transform duration-200 ease-in-out lg:relative lg:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
+        {sidebar}
+      </div>
+
+      {/* Main */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Top bar */}
+        <header className="flex items-center gap-4 px-4 md:px-6 py-4 bg-white border-b border-gray-100 flex-shrink-0">
+          <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors">
+            <Menu className="h-5 w-5 text-gray-600" />
+          </button>
+          <div className="flex-1">
+            <h1 className="text-lg font-bold text-gray-900">{SECTION_TITLES[section]}</h1>
+            <p className="text-xs text-gray-400">Fountstream Admin</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {unreadCount > 0 && (
+              <button onClick={() => go("messages")} className="relative p-2 rounded-lg hover:bg-gray-100">
+                <Bell className="h-5 w-5 text-gray-500" />
+                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+              </button>
+            )}
+            <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center text-xs font-bold text-white">
+              {user.firstName?.[0] ?? "A"}
+            </div>
+          </div>
+        </header>
+
+        {/* Content */}
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">
+          {section === "overview" && overviewSection}
+          {section === "products" && productsSection}
+          {section === "orders" && ordersSection}
+          {section === "messages" && messagesSection}
+          {section === "sellers" && sellersSection}
+          {section === "farm" && farmSection}
+        </main>
+      </div>
     </div>
   );
 }
