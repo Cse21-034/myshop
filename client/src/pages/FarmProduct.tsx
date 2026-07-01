@@ -211,12 +211,12 @@ export default function FarmProduct() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* ── Images ── */}
             <div className="space-y-3">
-              <div className="aspect-[4/3] bg-white rounded-xl overflow-hidden border">
+              <div className="aspect-[4/3] bg-white rounded-xl overflow-hidden border group cursor-zoom-in">
                 {allImages.length > 0 ? (
                   <img
                     src={allImages[activeImage]}
                     alt={product.name}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-8xl">
