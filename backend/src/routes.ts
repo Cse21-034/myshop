@@ -204,8 +204,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const product = await storage.createProduct(validated);
       res.status(201).json(product);
     } catch (err: any) {
+      console.error("[Seller createProduct]", err);
       if (err.name === "ZodError") return res.status(400).json({ message: "Invalid product data", errors: err.errors });
-      res.status(500).json({ message: "Failed to create product." });
+      if (err.code === "23505" && err.constraint?.includes("slug")) {
+        return res.status(409).json({ message: "A product with this slug already exists. Change the slug and try again." });
+      }
+      res.status(500).json({ message: err.message || "Failed to create product." });
     }
   });
 
@@ -220,8 +224,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (product.sellerId !== userId) return res.status(403).json({ message: "You do not own this product." });
       const updated = await storage.updateProduct(Number(req.params.id), req.body);
       res.json(updated);
-    } catch (err) {
-      res.status(500).json({ message: "Failed to update product." });
+    } catch (err: any) {
+      console.error("[Seller updateProduct]", err);
+      if (err.code === "23505" && err.constraint?.includes("slug")) {
+        return res.status(409).json({ message: "A product with this slug already exists. Change the slug and try again." });
+      }
+      res.status(500).json({ message: err.message || "Failed to update product." });
     }
   });
 

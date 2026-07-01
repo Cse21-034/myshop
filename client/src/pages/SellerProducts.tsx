@@ -26,8 +26,10 @@ const USD_TO_BWP = 13.5;
 const fmtBWP = (usd: string) =>
   `P ${(parseFloat(usd) * USD_TO_BWP).toLocaleString("en-BW", { minimumFractionDigits: 2 })}`;
 
-const generateSlug = (name: string) =>
-  name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+const generateSlug = (name: string) => {
+  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  return `${base}-${Date.now().toString(36)}`;
+};
 
 const productSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -55,12 +57,14 @@ function ProductForm({
   onSave,
   onCancel,
   isPending,
+  serverError,
 }: {
   product?: any;
   categories: any[];
   onSave: (d: ProductFormData) => void;
   onCancel: () => void;
   isPending: boolean;
+  serverError?: string | null;
 }) {
   const [newSize, setNewSize] = useState("");
   const [newColor, setNewColor] = useState("");
@@ -350,6 +354,12 @@ function ProductForm({
               )} />
             </div>
 
+            {serverError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+                {serverError}
+              </div>
+            )}
+
             <div className="flex gap-3 pt-2">
               <Button type="submit" className="flex-1" disabled={isPending}>
                 {isPending ? "Saving..." : product ? "Update Product" : "Create Product"}
@@ -389,8 +399,8 @@ export default function SellerProducts() {
     enabled: seller?.status === "approved",
   });
 
-  const createMutation = useMutation({
-    mutationFn: async (data: ProductFormData) => {
+  const createMutation = useMutation<void, Error, ProductFormData>({
+    mutationFn: async (data) => {
       const res = await apiRequest("POST", "/api/seller/products", data);
       if (!res.ok) throw new Error((await res.json()).message);
     },
@@ -399,11 +409,10 @@ export default function SellerProducts() {
       toast({ title: "Product created!" });
       navigate("/seller/products");
     },
-    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: ProductFormData }) => {
+  const updateMutation = useMutation<void, Error, { id: number; data: ProductFormData }>({
+    mutationFn: async ({ id, data }) => {
       const res = await apiRequest("PUT", `/api/seller/products/${id}`, data);
       if (!res.ok) throw new Error((await res.json()).message);
     },
@@ -412,7 +421,6 @@ export default function SellerProducts() {
       toast({ title: "Product updated!" });
       setEditingProduct(null);
     },
-    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const deleteMutation = useMutation({
@@ -447,6 +455,7 @@ export default function SellerProducts() {
             onSave={d => createMutation.mutate(d)}
             onCancel={() => navigate("/seller/products")}
             isPending={createMutation.isPending}
+            serverError={createMutation.error?.message}
           />
         </main>
         <Footer />
@@ -478,6 +487,7 @@ export default function SellerProducts() {
               onSave={d => updateMutation.mutate({ id: editingProduct.id, data: d })}
               onCancel={() => setEditingProduct(null)}
               isPending={updateMutation.isPending}
+              serverError={updateMutation.error?.message}
             />
           </div>
         )}
