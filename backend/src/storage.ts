@@ -8,6 +8,7 @@ import {
   orderItems,
   cartItems,
   contactMessages,
+  sellers,
   type User,
   type UpsertUser,
   type Category,
@@ -22,6 +23,8 @@ import {
   type InsertCartItem,
   type ContactMessage,
   type InsertContactMessage,
+  type Seller,
+  type InsertSeller,
 } from "./schema";
 import { db } from "./db";
 import { eq, desc, and, like, gte, lte, sql } from "drizzle-orm";
@@ -73,6 +76,16 @@ export interface IStorage {
   getContactMessages(): Promise<ContactMessage[]>;
   updateContactMessageStatus(id: number, status: string): Promise<ContactMessage>;
   deleteOrder(id: number): Promise<void>;
+  // Seller methods
+  createSeller(data: InsertSeller): Promise<Seller>;
+  getSellerByUserId(userId: string): Promise<Seller | undefined>;
+  getSellerById(id: number): Promise<Seller | undefined>;
+  getSellers(status?: string): Promise<(Seller & { user: User | null })[]>;
+  updateSellerStatus(id: number, status: string): Promise<Seller>;
+  updateSeller(id: number, data: Partial<InsertSeller>): Promise<Seller>;
+  getProductsBySeller(sellerId: string): Promise<Product[]>;
+  getOrdersBySeller(sellerId: string): Promise<(Order & { items: OrderItem[] })[]>;
+  setUserIsSeller(userId: string, isSeller: boolean): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -579,6 +592,84 @@ export class DatabaseStorage implements IStorage {
       .where(eq(contactMessages.id, id))
       .returning();
     return updatedMessage;
+  }
+
+  // ── Seller methods ──────────────────────────────────────────────────────────
+
+  async createSeller(data: InsertSeller): Promise<Seller> {
+    const [seller] = await db.insert(sellers).values(data).returning();
+    return seller;
+  }
+
+  async getSellerByUserId(userId: string): Promise<Seller | undefined> {
+    const [seller] = await db.select().from(sellers).where(eq(sellers.userId, userId));
+    return seller;
+  }
+
+  async getSellerById(id: number): Promise<Seller | undefined> {
+    const [seller] = await db.select().from(sellers).where(eq(sellers.id, id));
+    return seller;
+  }
+
+  async getSellers(status?: string): Promise<(Seller & { user: User | null })[]> {
+    const rows = await db.select().from(sellers)
+      .leftJoin(users, eq(sellers.userId, users.id))
+      .orderBy(desc(sellers.createdAt));
+    return rows
+      .filter(r => !status || r.sellers.status === status)
+      .map(r => ({ ...r.sellers, user: r.users }));
+  }
+
+  async updateSellerStatus(id: number, status: string): Promise<Seller> {
+    const [updated] = await db.update(sellers)
+      .set({ status, updatedAt: new Date() })
+      .where(eq(sellers.id, id))
+      .returning();
+    return updated;
+  }
+
+  async updateSeller(id: number, data: Partial<InsertSeller>): Promise<Seller> {
+    const [updated] = await db.update(sellers)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(sellers.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getProductsBySeller(sellerId: string): Promise<Product[]> {
+    return db.select().from(products).where(eq(products.sellerId, sellerId));
+  }
+
+  async getOrdersBySeller(sellerId: string): Promise<(Order & { items: OrderItem[] })[]> {
+    // Find orders that contain at least one product from this seller
+    const sellerProductIds = (await db.select({ id: products.id })
+      .from(products)
+      .where(eq(products.sellerId, sellerId)))
+      .map(p => p.id);
+
+    if (sellerProductIds.length === 0) return [];
+
+    const relevantItems = await db.select().from(orderItems)
+      .where(sql`${orderItems.productId} = ANY(ARRAY[${sql.join(sellerProductIds.map(id => sql`${id}`), sql`, `)}]::int[])`);
+
+    const orderIds = [...new Set(relevantItems.map(i => i.orderId).filter(Boolean))] as number[];
+    if (orderIds.length === 0) return [];
+
+    const sellerOrders = await db.select().from(orders)
+      .where(sql`${orders.id} = ANY(ARRAY[${sql.join(orderIds.map(id => sql`${id}`), sql`, `)}]::int[])`)
+      .orderBy(desc(orders.createdAt));
+
+    const allItems = await db.select().from(orderItems)
+      .where(sql`${orderItems.orderId} = ANY(ARRAY[${sql.join(orderIds.map(id => sql`${id}`), sql`, `)}]::int[])`);
+
+    return sellerOrders.map(order => ({
+      ...order,
+      items: allItems.filter(i => i.orderId === order.id),
+    }));
+  }
+
+  async setUserIsSeller(userId: string, isSeller: boolean): Promise<void> {
+    await db.update(users).set({ isSeller, updatedAt: new Date() }).where(eq(users.id, userId));
   }
 }
 

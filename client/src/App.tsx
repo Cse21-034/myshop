@@ -37,6 +37,10 @@ import Orders from "@/pages/Orders";
 import Profile from "@/pages/Profile";
 import FarmMarket from "@/pages/FarmMarket";
 import FarmProduct from "@/pages/FarmProduct";
+import SellerApply from "@/pages/SellerApply";
+import SellerDashboard from "@/pages/SellerDashboard";
+import SellerProducts from "@/pages/SellerProducts";
+import SellerOrders from "@/pages/SellerOrders";
 
 // Professional Loading Screen with consistent colors and mobile optimization
 function LoadingScreen() {
@@ -111,6 +115,11 @@ function Router() {
       <Route path="/contact" component={Contact} />
       <Route path="/farm-market" component={FarmMarket} />
       <Route path="/farm-product/:id" component={FarmProduct} />
+      <Route path="/seller/apply" component={() => <ProtectedRoute component={SellerApply} />} />
+      <Route path="/seller/dashboard" component={() => <ProtectedRoute component={SellerDashboard} />} />
+      <Route path="/seller/products/new" component={() => <ProtectedRoute component={SellerProducts} />} />
+      <Route path="/seller/products" component={() => <ProtectedRoute component={SellerProducts} />} />
+      <Route path="/seller/orders" component={() => <ProtectedRoute component={SellerOrders} />} />
       <Route path="/order-confirmation" component={OrderConfirmation} />
       <Route component={NotFound} />
     </Switch>

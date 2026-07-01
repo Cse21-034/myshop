@@ -137,6 +137,186 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==========================================================================
+  // SELLER ROUTES
+  // ==========================================================================
+
+  // Apply to become a seller
+  app.post("/api/seller/apply", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.user as any).id;
+      const existing = await storage.getSellerByUserId(userId);
+      if (existing) return res.status(409).json({ message: "You already have a seller application." });
+      const { storeName, description, phone, address, logoUrl } = req.body;
+      if (!storeName) return res.status(400).json({ message: "Store name is required." });
+      const seller = await storage.createSeller({ userId, storeName, description, phone, address, logoUrl });
+      res.status(201).json(seller);
+    } catch (err) {
+      console.error("[Seller Apply]", err);
+      res.status(500).json({ message: "Failed to submit application." });
+    }
+  });
+
+  // Get own seller profile
+  app.get("/api/seller/me", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const seller = await storage.getSellerByUserId((req.user as any).id);
+      if (!seller) return res.status(404).json({ message: "No seller profile found." });
+      res.json(seller);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch seller profile." });
+    }
+  });
+
+  // Update own seller profile
+  app.put("/api/seller/me", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const seller = await storage.getSellerByUserId((req.user as any).id);
+      if (!seller) return res.status(404).json({ message: "No seller profile found." });
+      if (seller.status !== "approved") return res.status(403).json({ message: "Only approved sellers can update their profile." });
+      const { storeName, description, phone, address, logoUrl } = req.body;
+      const updated = await storage.updateSeller(seller.id, { storeName, description, phone, address, logoUrl });
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to update profile." });
+    }
+  });
+
+  // Seller: list own products
+  app.get("/api/seller/products", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.user as any).id;
+      const seller = await storage.getSellerByUserId(userId);
+      if (!seller || seller.status !== "approved") return res.status(403).json({ message: "Approved seller account required." });
+      const items = await storage.getProductsBySeller(userId);
+      res.json(items);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch products." });
+    }
+  });
+
+  // Seller: create product
+  app.post("/api/seller/products", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.user as any).id;
+      const seller = await storage.getSellerByUserId(userId);
+      if (!seller || seller.status !== "approved") return res.status(403).json({ message: "Approved seller account required." });
+      const validated = insertProductSchema.parse({ ...req.body, sellerId: userId });
+      const product = await storage.createProduct(validated);
+      res.status(201).json(product);
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: "Invalid product data", errors: err.errors });
+      res.status(500).json({ message: "Failed to create product." });
+    }
+  });
+
+  // Seller: update own product
+  app.put("/api/seller/products/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.user as any).id;
+      const seller = await storage.getSellerByUserId(userId);
+      if (!seller || seller.status !== "approved") return res.status(403).json({ message: "Approved seller account required." });
+      const product = await storage.getProduct(Number(req.params.id));
+      if (!product) return res.status(404).json({ message: "Product not found." });
+      if (product.sellerId !== userId) return res.status(403).json({ message: "You do not own this product." });
+      const updated = await storage.updateProduct(Number(req.params.id), req.body);
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to update product." });
+    }
+  });
+
+  // Seller: delete own product
+  app.delete("/api/seller/products/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.user as any).id;
+      const seller = await storage.getSellerByUserId(userId);
+      if (!seller || seller.status !== "approved") return res.status(403).json({ message: "Approved seller account required." });
+      const product = await storage.getProduct(Number(req.params.id));
+      if (!product) return res.status(404).json({ message: "Product not found." });
+      if (product.sellerId !== userId) return res.status(403).json({ message: "You do not own this product." });
+      await storage.deleteProduct(Number(req.params.id));
+      res.json({ message: "Product deleted." });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to delete product." });
+    }
+  });
+
+  // Seller: list orders containing their products
+  app.get("/api/seller/orders", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.user as any).id;
+      const seller = await storage.getSellerByUserId(userId);
+      if (!seller || seller.status !== "approved") return res.status(403).json({ message: "Approved seller account required." });
+      const sellerOrders = await storage.getOrdersBySeller(userId);
+      res.json(sellerOrders);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch orders." });
+    }
+  });
+
+  // Seller: dashboard stats
+  app.get("/api/seller/stats", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.user as any).id;
+      const seller = await storage.getSellerByUserId(userId);
+      if (!seller || seller.status !== "approved") return res.status(403).json({ message: "Approved seller account required." });
+      const [sellerProducts, sellerOrders] = await Promise.all([
+        storage.getProductsBySeller(userId),
+        storage.getOrdersBySeller(userId),
+      ]);
+      const totalRevenue = sellerOrders
+        .flatMap(o => o.items)
+        .filter(i => i.productId && sellerProducts.some(p => p.id === i.productId))
+        .reduce((sum, i) => sum + parseFloat(i.productPrice) * i.quantity, 0);
+      res.json({
+        totalProducts: sellerProducts.length,
+        totalOrders: sellerOrders.length,
+        totalRevenue: totalRevenue.toFixed(2),
+        recentOrders: sellerOrders.slice(0, 5),
+      });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch stats." });
+    }
+  });
+
+  // ==========================================================================
+  // ADMIN: SELLER MANAGEMENT
+  // ==========================================================================
+
+  // List all sellers
+  app.get("/api/admin/sellers", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      if (!user?.isAdmin) return res.status(403).json({ message: "Admin access required." });
+      const status = req.query.status as string | undefined;
+      const allSellers = await storage.getSellers(status);
+      res.json(allSellers);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch sellers." });
+    }
+  });
+
+  // Approve / reject / suspend a seller
+  app.put("/api/admin/sellers/:id/status", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      if (!user?.isAdmin) return res.status(403).json({ message: "Admin access required." });
+      const { status } = req.body;
+      if (!["approved", "rejected", "suspended", "pending"].includes(status)) {
+        return res.status(400).json({ message: "Invalid status." });
+      }
+      const seller = await storage.getSellerById(Number(req.params.id));
+      if (!seller) return res.status(404).json({ message: "Seller not found." });
+      const updated = await storage.updateSellerStatus(Number(req.params.id), status);
+      // Grant or revoke isSeller flag on the user
+      await storage.setUserIsSeller(seller.userId, status === "approved");
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to update seller status." });
+    }
+  });
+
+  // ==========================================================================
   // AUTH ROUTES
   // ==========================================================================
 

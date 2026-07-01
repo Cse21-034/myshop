@@ -196,6 +196,16 @@ export default function Header() {
                       <DropdownMenuItem>
                         <Link href="/orders">My Orders</Link>
                       </DropdownMenuItem>
+                      {(user?.isSeller || user?.isAdmin) && (
+                        <DropdownMenuItem>
+                          <Link href="/seller/dashboard">Seller Dashboard</Link>
+                        </DropdownMenuItem>
+                      )}
+                      {!user?.isSeller && !user?.isAdmin && (
+                        <DropdownMenuItem>
+                          <Link href="/seller/apply">Become a Seller</Link>
+                        </DropdownMenuItem>
+                      )}
                       {user?.isAdmin && (
                         <DropdownMenuItem>
                           <Link href="/admin">Admin Dashboard</Link>
@@ -263,16 +273,15 @@ export default function Header() {
 
                        
 
-{user?.isAdmin === true || user?.isAdmin === "true" ? (
-  <DropdownMenuItem>
-    <Link href="/admin">Admin Dashboard</Link>
-  </DropdownMenuItem>
-) : null}
-
-
-
-
-                        
+                        {(user?.isSeller || user?.isAdmin) && (
+                          <Link href="/seller/dashboard" className="text-lg">Seller Dashboard</Link>
+                        )}
+                        {!user?.isSeller && !user?.isAdmin && (
+                          <Link href="/seller/apply" className="text-lg">Become a Seller</Link>
+                        )}
+                        {(user?.isAdmin === true || user?.isAdmin === "true") && (
+                          <Link href="/admin" className="text-lg">Admin Dashboard</Link>
+                        )}
                         <a href={`${backendURL}/auth/logout`} className="text-lg">Logout</a>
                       </>
                     ) : (

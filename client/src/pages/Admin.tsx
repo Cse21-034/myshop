@@ -39,6 +39,9 @@ import {
   CheckCircle2,
   AlertCircle,
   Tractor,
+  Store,
+  CheckCircle,
+  XCircle,
 } from "lucide-react";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -231,6 +234,23 @@ export default function Admin() {
       }
       return failureCount < 3;
     },
+  });
+
+  // Sellers
+  const { data: sellers = [], refetch: refetchSellers } = useQuery({
+    queryKey: ["/api/admin/sellers"],
+    retry: false,
+  });
+
+  const sellerStatusMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: number; status: string }) => {
+      await apiRequest("PUT", `/api/admin/sellers/${id}/status`, { status });
+    },
+    onSuccess: () => {
+      refetchSellers();
+      toast({ title: "Seller status updated." });
+    },
+    onError: () => toast({ title: "Failed to update seller.", variant: "destructive" }),
   });
 
   // Create/Update product mutation
@@ -734,11 +754,12 @@ export default function Admin() {
 
         {/* Admin Tabs */}
         <Tabs defaultValue="products" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="products">Products</TabsTrigger>
             <TabsTrigger value="orders">Orders</TabsTrigger>
             <TabsTrigger value="messages">Messages</TabsTrigger>
             <TabsTrigger value="farm-market">Farm Market</TabsTrigger>
+            <TabsTrigger value="sellers">Sellers</TabsTrigger>
           </TabsList>
 
           {/* Products Tab */}
@@ -1523,6 +1544,102 @@ export default function Admin() {
                 </CardContent>
               </Card>
             </div>
+          </TabsContent>
+
+          {/* Sellers Tab */}
+          <TabsContent value="sellers">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Store className="h-5 w-5" /> Seller Applications
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {(sellers as any[]).length === 0 ? (
+                  <p className="text-center text-gray-500 py-8">No seller applications yet.</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Store</TableHead>
+                        <TableHead>Owner</TableHead>
+                        <TableHead>Contact</TableHead>
+                        <TableHead>Applied</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(sellers as any[]).map((seller) => (
+                        <TableRow key={seller.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              {seller.logoUrl ? (
+                                <img src={seller.logoUrl} alt="" className="w-8 h-8 rounded-full object-cover" />
+                              ) : (
+                                <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
+                                  <Store className="h-4 w-4 text-gray-500" />
+                                </div>
+                              )}
+                              <div>
+                                <p className="font-medium text-sm">{seller.storeName}</p>
+                                <p className="text-xs text-gray-500 max-w-[160px] truncate">{seller.description}</p>
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <p className="text-sm">{seller.user?.firstName} {seller.user?.lastName}</p>
+                            <p className="text-xs text-gray-500">{seller.user?.email}</p>
+                          </TableCell>
+                          <TableCell>
+                            <p className="text-xs">{seller.phone}</p>
+                            <p className="text-xs text-gray-500">{seller.address}</p>
+                          </TableCell>
+                          <TableCell className="text-xs text-gray-500">
+                            {new Date(seller.createdAt).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={
+                              seller.status === "approved" ? "bg-green-100 text-green-700"
+                              : seller.status === "rejected" ? "bg-red-100 text-red-700"
+                              : seller.status === "suspended" ? "bg-orange-100 text-orange-700"
+                              : "bg-amber-100 text-amber-700"
+                            }>
+                              {seller.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-1">
+                              {seller.status !== "approved" && (
+                                <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white text-xs px-2 gap-1"
+                                  disabled={sellerStatusMutation.isPending}
+                                  onClick={() => sellerStatusMutation.mutate({ id: seller.id, status: "approved" })}>
+                                  <CheckCircle className="h-3 w-3" /> Approve
+                                </Button>
+                              )}
+                              {seller.status === "approved" && (
+                                <Button size="sm" variant="outline" className="text-xs px-2 gap-1 border-orange-400 text-orange-600"
+                                  disabled={sellerStatusMutation.isPending}
+                                  onClick={() => sellerStatusMutation.mutate({ id: seller.id, status: "suspended" })}>
+                                  Suspend
+                                </Button>
+                              )}
+                              {seller.status === "pending" && (
+                                <Button size="sm" variant="destructive" className="text-xs px-2 gap-1"
+                                  disabled={sellerStatusMutation.isPending}
+                                  onClick={() => sellerStatusMutation.mutate({ id: seller.id, status: "rejected" })}>
+                                  <XCircle className="h-3 w-3" /> Reject
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>

@@ -22,7 +22,23 @@ export const users = pgTable("users", {
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
   isAdmin: boolean("is_admin").default(false),
+  isSeller: boolean("is_seller").default(false),
   passwordHash: varchar("password_hash"),   // null for Google OAuth users
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Sellers table — profile + approval status for marketplace sellers
+export const sellers = pgTable("sellers", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").references(() => users.id).unique().notNull(),
+  storeName: varchar("store_name", { length: 255 }).notNull(),
+  description: text("description"),
+  logoUrl: varchar("logo_url"),
+  phone: varchar("phone"),
+  address: text("address"),
+  status: varchar("status").default("pending"), // pending | approved | rejected | suspended
+  commissionPercent: integer("commission_percent").default(10),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -55,6 +71,8 @@ export const products = pgTable("products", {
   active: boolean("active").default(true),
   status: varchar("status").default("active"), // active, inactive, sold, out_of_stock
   supplierUrl: varchar("supplier_url"),
+  // Seller marketplace
+  sellerId: varchar("seller_id").references(() => users.id),
   // Farm marketplace fields
   entityType: varchar("entity_type"),       // livestock | crop | poultry | inventory | null for regular products
   entityDetails: jsonb("entity_details"),   // entity-specific details object
@@ -134,9 +152,14 @@ export const contactMessages = pgTable("contact_messages", {
 });
 
 // Relations
-export const usersRelations = relations(users, ({ many }) => ({
+export const usersRelations = relations(users, ({ one, many }) => ({
   orders: many(orders),
   cartItems: many(cartItems),
+  seller: one(sellers, { fields: [users.id], references: [sellers.userId] }),
+}));
+
+export const sellersRelations = relations(sellers, ({ one }) => ({
+  user: one(users, { fields: [sellers.userId], references: [users.id] }),
 }));
 
 export const categoriesRelations = relations(categories, ({ many }) => ({
@@ -204,6 +227,9 @@ export type CartItem = typeof cartItems.$inferSelect;
 export type InsertContactMessage = typeof contactMessages.$inferInsert;
 export type ContactMessage = typeof contactMessages.$inferSelect;
 
+export type InsertSeller = typeof sellers.$inferInsert;
+export type Seller = typeof sellers.$inferSelect;
+
 // Enhanced schemas with new fields
 export const insertCategorySchema = createInsertSchema(categories).omit({
   id: true,
@@ -248,6 +274,14 @@ export const insertCartItemSchema = createInsertSchema(cartItems).omit({
 export const insertContactMessageSchema = createInsertSchema(contactMessages).omit({
   id: true,
   createdAt: true,
+});
+
+export const insertSellerSchema = createInsertSchema(sellers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  status: true,
+  commissionPercent: true,
 });
 
 // New schema for user update validation

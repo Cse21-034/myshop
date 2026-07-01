@@ -24,6 +24,23 @@ async function migrate() {
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS deposit_amount decimal(10,2)`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS remaining_balance decimal(10,2)`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS access_token varchar`,
+
+    // Seller marketplace
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_seller boolean DEFAULT false`,
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS seller_id varchar`,
+    `CREATE TABLE IF NOT EXISTS sellers (
+      id serial PRIMARY KEY,
+      user_id varchar UNIQUE NOT NULL REFERENCES users(id),
+      store_name varchar(255) NOT NULL,
+      description text,
+      logo_url varchar,
+      phone varchar,
+      address text,
+      status varchar DEFAULT 'pending',
+      commission_percent integer DEFAULT 10,
+      created_at timestamp DEFAULT now(),
+      updated_at timestamp DEFAULT now()
+    )`,
   ];
 
   for (const statement of migrations) {
