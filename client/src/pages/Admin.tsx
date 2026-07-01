@@ -494,38 +494,40 @@ export default function Admin() {
           <Button variant="ghost" size="sm" className="text-xs text-emerald-600" onClick={() => setSection("orders")}>View all</Button>
         </CardHeader>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-b border-gray-100">
-                <TableHead className="text-xs pl-6">Order</TableHead>
-                <TableHead className="text-xs">Customer</TableHead>
-                <TableHead className="text-xs">Total</TableHead>
-                <TableHead className="text-xs">Status</TableHead>
-                <TableHead className="text-xs pr-6">Date</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(orders as Order[]).slice(0, 5).map((o) => (
-                <TableRow key={o.id} className="border-b border-gray-50 hover:bg-gray-50/50">
-                  <TableCell className="pl-6 font-mono text-xs text-gray-500">#{o.id}</TableCell>
-                  <TableCell className="text-sm font-medium">{o.firstName} {o.lastName}</TableCell>
-                  <TableCell className="text-sm font-semibold">${o.total}</TableCell>
-                  <TableCell>
-                    <Badge className={`text-xs ${
-                      o.status === "delivered" ? "bg-emerald-100 text-emerald-700"
-                      : o.status === "awaiting_confirmation" ? "bg-amber-100 text-amber-700"
-                      : o.status === "cancelled" ? "bg-red-100 text-red-700"
-                      : "bg-blue-100 text-blue-700"
-                    }`}>{STATUS_LABEL[o.status] || o.status}</Badge>
-                  </TableCell>
-                  <TableCell className="text-xs text-gray-400 pr-6">{new Date(o.createdAt!).toLocaleDateString()}</TableCell>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-b border-gray-100">
+                  <TableHead className="text-xs pl-6">Order</TableHead>
+                  <TableHead className="text-xs">Customer</TableHead>
+                  <TableHead className="text-xs">Total</TableHead>
+                  <TableHead className="text-xs">Status</TableHead>
+                  <TableHead className="text-xs pr-6 hidden sm:table-cell">Date</TableHead>
                 </TableRow>
-              ))}
-              {orders.length === 0 && (
-                <TableRow><TableCell colSpan={5} className="text-center text-sm text-gray-400 py-8">No orders yet</TableCell></TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {(orders as Order[]).slice(0, 5).map((o) => (
+                  <TableRow key={o.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                    <TableCell className="pl-6 font-mono text-xs text-gray-500">#{o.id}</TableCell>
+                    <TableCell className="text-sm font-medium">{o.firstName} {o.lastName}</TableCell>
+                    <TableCell className="text-sm font-semibold">${o.total}</TableCell>
+                    <TableCell>
+                      <Badge className={`text-xs ${
+                        o.status === "delivered" ? "bg-emerald-100 text-emerald-700"
+                        : o.status === "awaiting_confirmation" ? "bg-amber-100 text-amber-700"
+                        : o.status === "cancelled" ? "bg-red-100 text-red-700"
+                        : "bg-blue-100 text-blue-700"
+                      }`}>{STATUS_LABEL[o.status] || o.status}</Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-gray-400 pr-6 hidden sm:table-cell">{new Date(o.createdAt!).toLocaleDateString()}</TableCell>
+                  </TableRow>
+                ))}
+                {orders.length === 0 && (
+                  <TableRow><TableCell colSpan={5} className="text-center text-sm text-gray-400 py-8">No orders yet</TableCell></TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -650,14 +652,15 @@ export default function Admin() {
         {productDialog}
       </CardHeader>
       <CardContent className="p-0">
+        <div className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow className="border-b border-gray-100">
               <TableHead className="pl-6 text-xs">Product</TableHead>
-              <TableHead className="text-xs">Category</TableHead>
+              <TableHead className="text-xs hidden md:table-cell">Category</TableHead>
               <TableHead className="text-xs">Price</TableHead>
               <TableHead className="text-xs">Stock</TableHead>
-              <TableHead className="text-xs">Status</TableHead>
+              <TableHead className="text-xs hidden sm:table-cell">Status</TableHead>
               <TableHead className="text-xs pr-6">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -673,7 +676,7 @@ export default function Admin() {
                     </div>
                   </div>
                 </TableCell>
-                <TableCell className="text-sm text-gray-600">{(categories as any[]).find((c: any) => c.id === p.categoryId)?.name || "—"}</TableCell>
+                <TableCell className="text-sm text-gray-600 hidden md:table-cell">{(categories as any[]).find((c: any) => c.id === p.categoryId)?.name || "—"}</TableCell>
                 <TableCell>
                   <p className="text-sm font-semibold">${p.price}</p>
                   {p.originalPrice && <p className="text-xs text-gray-400 line-through">${p.originalPrice}</p>}
@@ -681,7 +684,7 @@ export default function Admin() {
                 <TableCell>
                   <Badge variant={p.stock > 0 ? "outline" : "destructive"} className="text-xs">{p.stock > 0 ? `${p.stock}` : "0"}</Badge>
                 </TableCell>
-                <TableCell>
+                <TableCell className="hidden sm:table-cell">
                   <div className="flex gap-1 flex-wrap">
                     {p.featured && <Badge className="text-xs bg-amber-100 text-amber-700">Featured</Badge>}
                     {getStatusBadge((p as any).status || "active", p.stock)}
@@ -698,6 +701,7 @@ export default function Admin() {
             ))}
           </TableBody>
         </Table>
+        </div>
       </CardContent>
     </Card>
   );
@@ -709,6 +713,7 @@ export default function Admin() {
         <CardTitle className="text-base">Orders ({orders.length})</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
+        <div className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow className="border-b border-gray-100">
@@ -716,7 +721,7 @@ export default function Admin() {
               <TableHead className="text-xs">Customer</TableHead>
               <TableHead className="text-xs">Total</TableHead>
               <TableHead className="text-xs">Status</TableHead>
-              <TableHead className="text-xs">Date</TableHead>
+              <TableHead className="text-xs hidden sm:table-cell">Date</TableHead>
               <TableHead className="text-xs pr-6">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -744,7 +749,7 @@ export default function Admin() {
                       : "bg-blue-100 text-blue-700"
                     }`}>{STATUS_LABEL[o.status] || o.status}</Badge>
                   </TableCell>
-                  <TableCell className="text-xs text-gray-400">{new Date(o.createdAt!).toLocaleDateString()}</TableCell>
+                  <TableCell className="text-xs text-gray-400 hidden sm:table-cell">{new Date(o.createdAt!).toLocaleDateString()}</TableCell>
                   <TableCell className="pr-6">
                     <div className="flex gap-1 flex-wrap">
                       {isReservation && <>
@@ -785,6 +790,7 @@ export default function Admin() {
             })}
           </TableBody>
         </Table>
+        </div>
       </CardContent>
     </Card>
   );
@@ -794,14 +800,15 @@ export default function Admin() {
     <Card className="border-0 shadow-sm">
       <CardHeader><CardTitle className="text-base">Contact Messages</CardTitle></CardHeader>
       <CardContent className="p-0">
+        <div className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow className="border-b border-gray-100">
               <TableHead className="pl-6 text-xs">Name</TableHead>
-              <TableHead className="text-xs">Email</TableHead>
+              <TableHead className="text-xs hidden md:table-cell">Email</TableHead>
               <TableHead className="text-xs">Subject</TableHead>
               <TableHead className="text-xs">Status</TableHead>
-              <TableHead className="text-xs">Date</TableHead>
+              <TableHead className="text-xs hidden sm:table-cell">Date</TableHead>
               <TableHead className="text-xs pr-6">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -809,12 +816,12 @@ export default function Admin() {
             {(messages as ContactMessage[]).map((m) => (
               <TableRow key={m.id} className={`hover:bg-gray-50/50 border-b border-gray-50 ${m.status === "unread" ? "font-medium" : ""}`}>
                 <TableCell className="pl-6 text-sm">{m.name}</TableCell>
-                <TableCell className="text-sm text-gray-600">{m.email}</TableCell>
+                <TableCell className="text-sm text-gray-600 hidden md:table-cell">{m.email}</TableCell>
                 <TableCell className="text-sm max-w-[180px] truncate">{m.subject}</TableCell>
                 <TableCell>
                   <Badge className={`text-xs ${m.status === "unread" ? "bg-red-100 text-red-700" : m.status === "replied" ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-600"}`}>{m.status}</Badge>
                 </TableCell>
-                <TableCell className="text-xs text-gray-400">{new Date(m.createdAt!).toLocaleDateString()}</TableCell>
+                <TableCell className="text-xs text-gray-400 hidden sm:table-cell">{new Date(m.createdAt!).toLocaleDateString()}</TableCell>
                 <TableCell className="pr-6">
                   <div className="flex gap-1">
                     <Dialog open={isMessageDialogOpen} onOpenChange={setIsMessageDialogOpen}>
@@ -850,6 +857,7 @@ export default function Admin() {
             ))}
           </TableBody>
         </Table>
+        </div>
       </CardContent>
     </Card>
   );
@@ -862,13 +870,14 @@ export default function Admin() {
         {(sellers as any[]).length === 0 ? (
           <p className="text-center text-sm text-gray-400 py-10">No seller applications yet.</p>
         ) : (
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="border-b border-gray-100">
                 <TableHead className="pl-6 text-xs">Store</TableHead>
-                <TableHead className="text-xs">Owner</TableHead>
-                <TableHead className="text-xs">Contact</TableHead>
-                <TableHead className="text-xs">Applied</TableHead>
+                <TableHead className="text-xs hidden md:table-cell">Owner</TableHead>
+                <TableHead className="text-xs hidden md:table-cell">Contact</TableHead>
+                <TableHead className="text-xs hidden sm:table-cell">Applied</TableHead>
                 <TableHead className="text-xs">Status</TableHead>
                 <TableHead className="text-xs pr-6">Actions</TableHead>
               </TableRow>
@@ -886,12 +895,12 @@ export default function Admin() {
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden md:table-cell">
                     <p className="text-sm">{s.user?.firstName} {s.user?.lastName}</p>
                     <p className="text-xs text-gray-400">{s.user?.email}</p>
                   </TableCell>
-                  <TableCell><p className="text-xs">{s.phone}</p><p className="text-xs text-gray-400">{s.address}</p></TableCell>
-                  <TableCell className="text-xs text-gray-400">{new Date(s.createdAt).toLocaleDateString()}</TableCell>
+                  <TableCell className="hidden md:table-cell"><p className="text-xs">{s.phone}</p><p className="text-xs text-gray-400">{s.address}</p></TableCell>
+                  <TableCell className="text-xs text-gray-400 hidden sm:table-cell">{new Date(s.createdAt).toLocaleDateString()}</TableCell>
                   <TableCell>
                     <Badge className={`text-xs ${s.status === "approved" ? "bg-emerald-100 text-emerald-700" : s.status === "rejected" ? "bg-red-100 text-red-700" : s.status === "suspended" ? "bg-orange-100 text-orange-700" : "bg-amber-100 text-amber-700"}`}>{s.status}</Badge>
                   </TableCell>
@@ -906,6 +915,7 @@ export default function Admin() {
               ))}
             </TableBody>
           </Table>
+          </div>
         )}
       </CardContent>
     </Card>

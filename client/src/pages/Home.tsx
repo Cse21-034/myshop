@@ -38,18 +38,15 @@ export default function Home() {
             <p className="text-base sm:text-lg md:text-xl text-gray-200 mb-6 sm:mb-8">
               Discover new arrivals and exclusive deals just for you
             </p>
-            <div className="flex flex-col sm:flex-row justify-center space-y-3 sm:space-y-0 sm:space-x-4">
-              <Button size="lg" className="bg-secondary hover:bg-yellow-600 h-10 sm:h-12 text-sm sm:text-base" asChild>
+            <div className="flex flex-row justify-center gap-3">
+              <Button size="lg" className="bg-secondary hover:bg-yellow-600 h-9 px-5 text-sm sm:h-12 sm:px-8 sm:text-base" asChild>
                 <Link href="/shop">
                   <span className="hidden sm:inline">Shop New Arrivals</span>
                   <span className="sm:hidden">Shop Now</span>
                 </Link>
               </Button>
-              <Button size="lg" variant="outline" className="text-white border-white hover:bg-white hover:text-primary h-10 sm:h-12 text-sm sm:text-base" asChild>
-                <Link href="/shop?featured=true">
-                  <span className="hidden sm:inline">View Deals</span>
-                  <span className="sm:hidden">Deals</span>
-                </Link>
+              <Button size="lg" variant="outline" className="text-white border-white hover:bg-white hover:text-primary h-9 px-5 text-sm sm:h-12 sm:px-8 sm:text-base" asChild>
+                <Link href="/shop?featured=true">View Deals</Link>
               </Button>
             </div>
           </div>
@@ -157,11 +154,11 @@ export default function Home() {
             <p className="text-base sm:text-lg md:text-xl mb-4 sm:mb-6">
               Get 20% off your first order with code WELCOME20
             </p>
-            <div className="flex flex-col sm:flex-row justify-center space-y-3 sm:space-y-0 sm:space-x-4">
-              <Button size="lg" className="bg-white text-secondary hover:bg-gray-100 h-10 sm:h-12 text-sm sm:text-base" asChild>
+            <div className="flex flex-row justify-center gap-3">
+              <Button size="lg" className="bg-white text-secondary hover:bg-gray-100 h-9 px-5 text-sm sm:h-12 sm:px-8 sm:text-base" asChild>
                 <Link href="/shop">Shop Now</Link>
               </Button>
-              <Button size="lg" variant="outline" className="text-white border-white hover:bg-white hover:text-secondary h-10 sm:h-12 text-sm sm:text-base">
+              <Button size="lg" variant="outline" className="text-white border-white hover:bg-white hover:text-secondary h-9 px-5 text-sm sm:h-12 sm:px-8 sm:text-base">
                 Learn More
               </Button>
             </div>

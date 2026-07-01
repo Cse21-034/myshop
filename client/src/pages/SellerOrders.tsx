@@ -71,6 +71,7 @@ export default function SellerOrders() {
                 <CardContent className="p-5">
                   {/* Items table */}
                   <div className="rounded-lg border border-gray-100 overflow-hidden mb-4">
+                    <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50">
                         <tr>
@@ -93,6 +94,7 @@ export default function SellerOrders() {
                         ))}
                       </tbody>
                     </table>
+                    </div>
                   </div>
 
                   {/* Footer */}
