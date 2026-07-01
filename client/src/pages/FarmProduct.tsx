@@ -138,6 +138,15 @@ export default function FarmProduct() {
   const [activeImage, setActiveImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const [fulfillmentType, setFulfillmentType] = useState<"pickup" | "delivery">("pickup");
+  const [isZoomed, setIsZoomed] = useState(false);
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    setMousePosition({ x, y });
+  };
 
   const { data: product, isLoading, error } = useQuery<any>({
     queryKey: [`/api/products/${id}`],
@@ -211,19 +220,36 @@ export default function FarmProduct() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* ── Images ── */}
             <div className="space-y-3">
-              <div className="aspect-[4/3] bg-white rounded-xl overflow-hidden border group cursor-zoom-in">
+              <div
+                className="relative w-full aspect-[4/3] rounded-xl overflow-hidden cursor-crosshair bg-white border"
+                onMouseMove={handleMouseMove}
+                onMouseEnter={() => setIsZoomed(true)}
+                onMouseLeave={() => setIsZoomed(false)}
+              >
                 {allImages.length > 0 ? (
                   <img
                     src={allImages[activeImage]}
                     alt={product.name}
-                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
+                    className={`w-full h-full object-cover select-none transition-transform duration-200 ${
+                      isZoomed ? "scale-150" : "scale-100"
+                    }`}
+                    style={{
+                      transformOrigin: `${mousePosition.x}% ${mousePosition.y}%`,
+                    }}
+                    onContextMenu={e => e.preventDefault()}
+                    onDragStart={e => e.preventDefault()}
                   />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-8xl">
-                    {product.entityType === "livestock" ? "🐄"
-                      : product.entityType === "crop" ? "🌾"
-                      : product.entityType === "poultry" ? "🐔"
-                      : "📦"}
+                  <div className="w-full h-full flex items-center justify-center bg-green-50 text-green-500 text-lg font-medium">
+                    {product.entityType === "livestock" ? "Livestock"
+                      : product.entityType === "crop" ? "Crop"
+                      : product.entityType === "poultry" ? "Poultry"
+                      : "Farm Product"}
+                  </div>
+                )}
+                {!isZoomed && allImages.length > 0 && (
+                  <div className="absolute top-2 right-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded">
+                    Hover to zoom
                   </div>
                 )}
               </div>
