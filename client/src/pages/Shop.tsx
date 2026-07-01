@@ -198,7 +198,7 @@ export default function Shop() {
     <div className="min-h-screen bg-gray-50">
       <Header />
 
-      <div className="container mx-auto px-4 py-4 md:py-8">
+      <div className="container mx-auto px-2 sm:px-4 py-4 md:py-8">
         {/* Page Header */}
         <div className="mb-4 md:mb-8">
           <h1 className="text-2xl md:text-3xl font-bold text-primary mb-3 md:mb-4">Shop All Products</h1>
@@ -304,7 +304,7 @@ export default function Shop() {
           {/* Products Grid */}
           <div className="lg:w-3/4">
             {isLoading ? (
-              <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-6">
+              <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-6">
                 {[...Array(6)].map((_, i) => (
                   <div key={i} className="bg-white rounded-lg shadow-sm animate-pulse">
                     <div className="h-40 md:h-64 bg-gray-200 rounded-t-lg" />
@@ -337,7 +337,7 @@ export default function Shop() {
                   </p>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-6">
+                <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-6">
                   {sortedProducts.map((product: Product) => (
                     <div key={product.id} onClick={() => openProductModal(product)}>
                       <ProductCard product={product} />

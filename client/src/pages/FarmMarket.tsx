@@ -253,7 +253,7 @@ export default function FarmMarket() {
         </div>
       </div>
 
-      <div className="container mx-auto max-w-6xl px-4 py-6">
+      <div className="container mx-auto max-w-6xl px-2 sm:px-4 py-6">
         {/* Mobile controls row */}
         <div className="flex gap-2 mb-4 md:hidden">
           <Sheet open={isFilterOpen} onOpenChange={setIsFilterOpen}>
@@ -326,7 +326,7 @@ export default function FarmMarket() {
             </p>
 
             {isLoading ? (
-              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-6">
+              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-6">
                 {Array.from({ length: 8 }).map((_, i) => (
                   <div key={i} className="bg-white rounded-lg h-72 animate-pulse" />
                 ))}
@@ -341,7 +341,7 @@ export default function FarmMarket() {
                 <Button variant="outline" onClick={clearFilters}>Clear Filters</Button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-6">
+              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-6">
                 {sorted.map((product: any) => (
                   <FarmProductCard key={product.id} product={product} />
                 ))}
