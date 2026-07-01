@@ -37,6 +37,8 @@ import Orders from "@/pages/Orders";
 import Profile from "@/pages/Profile";
 import FarmMarket from "@/pages/FarmMarket";
 import FarmProduct from "@/pages/FarmProduct";
+import ForgotPassword from "@/pages/ForgotPassword";
+import ResetPassword from "@/pages/ResetPassword";
 import SellerApply from "@/pages/SellerApply";
 import SellerDashboard from "@/pages/SellerDashboard";
 import SellerProducts from "@/pages/SellerProducts";
@@ -120,6 +122,8 @@ function Router() {
       <Route path="/seller/products/new" component={() => <ProtectedRoute component={SellerProducts} />} />
       <Route path="/seller/products" component={() => <ProtectedRoute component={SellerProducts} />} />
       <Route path="/seller/orders" component={() => <ProtectedRoute component={SellerOrders} />} />
+      <Route path="/forgot-password" component={ForgotPassword} />
+      <Route path="/reset-password" component={ResetPassword} />
       <Route path="/order-confirmation" component={OrderConfirmation} />
       <Route component={NotFound} />
     </Switch>

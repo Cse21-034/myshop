@@ -8,6 +8,8 @@ import { db } from "./db";
 import { contactMessages, products } from "./schema";
 import { createStripePaymentIntent, initiateOrangeMoneyPayment } from "./payment";
 import { createPayPalOrder, capturePayPalOrder } from "./paypal-service";
+import { sendEmail, passwordResetTemplate } from "./email";
+import { setResetToken, getResetToken, deleteResetToken } from "./tokenStore";
 import {
   insertProductSchema,
   insertCategorySchema,
@@ -413,6 +415,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Login error:", error);
       res.status(500).json({ message: "Login failed" });
+    }
+  });
+
+  // ── Forgot password ──────────────────────────────────────────────────────
+  app.post("/api/auth/forgot-password", async (req: Request, res: Response) => {
+    try {
+      const { email } = req.body;
+      if (!email) return res.status(400).json({ message: "Email is required" });
+
+      const user = await storage.getUserByEmail(email.toLowerCase().trim());
+
+      // Always return 200 to prevent email enumeration
+      if (!user) return res.json({ message: "If that email exists, a reset link has been sent." });
+      if (!user.passwordHash) {
+        return res.json({ message: "This account uses Google sign-in. Please log in with Google." });
+      }
+
+      const { randomBytes } = await import("crypto");
+      const token = randomBytes(32).toString("hex");
+      setResetToken(token, user.id, user.email!);
+
+      const frontendUrl = (process.env.FRONTEND_URL || "https://shop.farmerm.com").replace(/\/$/, "");
+      const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
+      const html = passwordResetTemplate(resetUrl, user.firstName || "there");
+
+      await sendEmail(user.email!, "Reset your Fountstream password", html);
+      res.json({ message: "If that email exists, a reset link has been sent." });
+    } catch (err: any) {
+      console.error("[Forgot password]", err);
+      res.status(500).json({ message: "Failed to send reset email. Please try again." });
+    }
+  });
+
+  // ── Verify reset token (GET — frontend polls before showing the form) ──────
+  app.get("/api/auth/reset-password/:token", async (req: Request, res: Response) => {
+    const entry = getResetToken(req.params.token);
+    if (!entry) return res.status(400).json({ valid: false, message: "Link is invalid or has expired." });
+    res.json({ valid: true, email: entry.email });
+  });
+
+  // ── Reset password ────────────────────────────────────────────────────────
+  app.post("/api/auth/reset-password", async (req: Request, res: Response) => {
+    try {
+      const { token, password } = req.body;
+      if (!token || !password) return res.status(400).json({ message: "Token and password are required" });
+      if (password.length < 8) return res.status(400).json({ message: "Password must be at least 8 characters" });
+
+      const entry = getResetToken(token);
+      if (!entry) return res.status(400).json({ message: "Reset link is invalid or has expired. Please request a new one." });
+
+      const bcrypt = await import("bcryptjs");
+      const passwordHash = await bcrypt.hash(password, 12);
+      await storage.updateUser(entry.userId, { passwordHash } as any);
+      deleteResetToken(token);
+
+      res.json({ message: "Password updated successfully. You can now sign in." });
+    } catch (err: any) {
+      console.error("[Reset password]", err);
+      res.status(500).json({ message: "Failed to reset password. Please try again." });
     }
   });
 
