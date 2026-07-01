@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { KeyRound, CheckCircle2, XCircle, Eye, EyeOff } from "lucide-react";
-import { BASE_URL } from "@/lib/queryClient";
+import { BASE_URL, getCsrfToken, clearCsrfToken } from "@/lib/queryClient";
 
 type Status = "checking" | "invalid" | "ready" | "submitting" | "done";
 
@@ -41,11 +41,23 @@ export default function ResetPassword() {
 
     setStatus("submitting");
     try {
-      const res = await fetch(`${BASE_URL}/api/auth/reset-password`, {
+      let csrfToken = await getCsrfToken();
+      let res = await fetch(`${BASE_URL}/api/auth/reset-password`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+        credentials: "include",
         body: JSON.stringify({ token, password }),
       });
+      if (res.status === 403) {
+        clearCsrfToken();
+        csrfToken = await getCsrfToken();
+        res = await fetch(`${BASE_URL}/api/auth/reset-password`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+          credentials: "include",
+          body: JSON.stringify({ token, password }),
+        });
+      }
       const data = await res.json();
       if (!res.ok) { setError(data.message || "Something went wrong."); setStatus("ready"); return; }
       setStatus("done");

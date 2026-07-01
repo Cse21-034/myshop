@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { BASE_URL } from "@/lib/queryClient";
+import { BASE_URL, getCsrfToken, clearCsrfToken } from "@/lib/queryClient";
 import { useQueryClient } from "@tanstack/react-query";
 
 const backendURL = (import.meta.env.VITE_API_BASE_URL || "https://myshop-test-backend.onrender.com").replace(/\/$/, "");
@@ -31,16 +31,32 @@ export default function AuthModal({ open, onOpenChange, defaultTab = "login" }: 
     queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
   }
 
+  async function authFetch(url: string, body: object) {
+    let csrfToken = await getCsrfToken();
+    let res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+      credentials: "include",
+      body: JSON.stringify(body),
+    });
+    if (res.status === 403) {
+      clearCsrfToken();
+      csrfToken = await getCsrfToken();
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+    }
+    return res;
+  }
+
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await fetch(`${BASE_URL}/api/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(loginData),
-      });
+      const res = await authFetch(`${BASE_URL}/api/auth/login`, loginData);
       const data = await res.json();
       if (!res.ok) {
         toast({
@@ -72,16 +88,11 @@ export default function AuthModal({ open, onOpenChange, defaultTab = "login" }: 
     }
     setLoading(true);
     try {
-      const res = await fetch(`${BASE_URL}/api/auth/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          email: registerData.email,
-          password: registerData.password,
-          firstName: registerData.firstName,
-          lastName: registerData.lastName,
-        }),
+      const res = await authFetch(`${BASE_URL}/api/auth/register`, {
+        email: registerData.email,
+        password: registerData.password,
+        firstName: registerData.firstName,
+        lastName: registerData.lastName,
       });
       const data = await res.json();
       if (!res.ok) {

@@ -45,7 +45,7 @@ async function refreshJwtToken(): Promise<string | null> {
   }
 }
 
-async function getCsrfToken(): Promise<string> {
+export async function getCsrfToken(): Promise<string> {
   const storedCsrfToken = localStorage.getItem("csrfToken");
   if (storedCsrfToken) {
     console.log("🔐 Using stored CSRF token from localStorage");

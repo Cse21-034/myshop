@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Mail, ArrowLeft, CheckCircle2 } from "lucide-react";
-import { BASE_URL } from "@/lib/queryClient";
+import { BASE_URL, getCsrfToken, clearCsrfToken } from "@/lib/queryClient";
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
@@ -20,11 +20,23 @@ export default function ForgotPassword() {
     setError("");
     setLoading(true);
     try {
-      const res = await fetch(`${BASE_URL}/api/auth/forgot-password`, {
+      let csrfToken = await getCsrfToken();
+      let res = await fetch(`${BASE_URL}/api/auth/forgot-password`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+        credentials: "include",
         body: JSON.stringify({ email }),
       });
+      if (res.status === 403) {
+        clearCsrfToken();
+        csrfToken = await getCsrfToken();
+        res = await fetch(`${BASE_URL}/api/auth/forgot-password`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+          credentials: "include",
+          body: JSON.stringify({ email }),
+        });
+      }
       const data = await res.json();
       if (!res.ok) {
         setError(data.message || "Something went wrong.");
