@@ -52,6 +52,86 @@ export async function sendEmail(to: string, subject: string, html: string): Prom
 
 // ─── templates ───────────────────────────────────────────────────────────────
 
+const USD_TO_BWP = 13.5;
+function fmtBWP(usd: string | number): string {
+  const n = typeof usd === "string" ? parseFloat(usd) : usd;
+  return `P ${(n * USD_TO_BWP).toLocaleString("en-BW", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+export function orderConfirmationTemplate(order: {
+  id: number;
+  firstName: string;
+  total: string;
+  paymentMethod: string;
+  address: string;
+  city: string;
+  depositAmount?: string | null;
+  remainingBalance?: string | null;
+  items: { productName: string; quantity: number; productPrice: string }[];
+}): string {
+  const itemRows = order.items
+    .map(
+      (item) =>
+        `<tr>
+          <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;font-size:14px">${item.productName}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:14px">${item.quantity}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:right;font-size:14px">${fmtBWP(parseFloat(item.productPrice) * item.quantity)}</td>
+        </tr>`
+    )
+    .join("");
+
+  const isDeposit = !!(order.depositAmount && parseFloat(order.depositAmount) > 0);
+  const amountSection = isDeposit
+    ? `<p style="margin:4px 0;color:#888;text-decoration:line-through;font-size:13px">Full total: ${fmtBWP(order.total)}</p>
+       <p style="margin:4px 0;font-size:18px;font-weight:700;color:#b45309">Deposit paid: ${fmtBWP(order.depositAmount!)}</p>
+       <p style="margin:4px 0;color:#888;font-size:13px">Due on collection: ${fmtBWP(order.remainingBalance ?? "0")}</p>`
+    : `<p style="margin:4px 0;font-size:18px;font-weight:700;color:#1a4731">Total: ${fmtBWP(order.total)}</p>`;
+
+  const paymentLabel = order.paymentMethod === "cash"
+    ? "Cash on Delivery"
+    : order.paymentMethod.charAt(0).toUpperCase() + order.paymentMethod.slice(1);
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:sans-serif;background:#f5f5f5;margin:0;padding:24px">
+  <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08)">
+    <div style="background:#1a4731;padding:28px 32px;text-align:center">
+      <h1 style="color:#fff;margin:0;font-size:24px;font-weight:700">Fountstream</h1>
+      <p style="color:#86efac;margin:8px 0 0;font-size:14px">Order Confirmed ✓</p>
+    </div>
+    <div style="padding:32px">
+      <h2 style="color:#111;margin:0 0 8px;font-size:20px">Thank you, ${order.firstName}!</h2>
+      <p style="color:#555;margin:0 0 20px;line-height:1.6">Your order has been placed successfully. Here's your summary:</p>
+      <div style="background:#f0faf4;border-radius:8px;padding:16px;margin-bottom:20px;border-left:4px solid #1a4731">
+        <p style="margin:0 0 4px;font-size:12px;color:#888;text-transform:uppercase;letter-spacing:1px">Order Number</p>
+        <p style="margin:0;font-size:22px;font-weight:700;color:#1a4731">#${order.id}</p>
+      </div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
+        <thead>
+          <tr style="background:#f9fafb">
+            <th style="padding:8px 12px;text-align:left;font-size:11px;color:#888;font-weight:600;text-transform:uppercase">Product</th>
+            <th style="padding:8px 12px;text-align:center;font-size:11px;color:#888;font-weight:600;text-transform:uppercase">Qty</th>
+            <th style="padding:8px 12px;text-align:right;font-size:11px;color:#888;font-weight:600;text-transform:uppercase">Subtotal</th>
+          </tr>
+        </thead>
+        <tbody>${itemRows}</tbody>
+      </table>
+      <div style="text-align:right;border-top:2px solid #f0f0f0;padding-top:16px;margin-bottom:24px">${amountSection}</div>
+      <div style="font-size:13px;color:#555;line-height:2;background:#f9fafb;border-radius:8px;padding:16px">
+        <div><strong style="color:#111">Delivery to:</strong> ${order.address}, ${order.city}</div>
+        <div><strong style="color:#111">Payment:</strong> ${paymentLabel}</div>
+        ${order.paymentMethod === "cash" ? `<div style="color:#b45309;font-size:12px;margin-top:4px">⚠ Cash payment due on delivery.</div>` : ""}
+      </div>
+    </div>
+    <div style="background:#f9f9f9;padding:16px 32px;text-align:center">
+      <p style="color:#aaa;font-size:12px;margin:0">© ${new Date().getFullYear()} Fountstream — Thank you for shopping with us!</p>
+    </div>
+  </div>
+</body>
+</html>`.trim();
+}
+
 export function otpEmailTemplate(otp: string, firstName: string): string {
   const digits = otp
     .split("")

@@ -23,8 +23,6 @@ import PayPalWrapper from "@/components/PayPalWrapper";
 import type { Product } from "@shared/schema";
 
 const botswanaPhoneRegex = /^(?:\+2677\d{7}|7\d{7})$/;
-const botswanaStreetRegex =
-  /^(?:Plot\s*\d+|House\s*\d+|PO Box\s*\d+|Private Bag\s*\d+).+$/i;
 
 const checkoutSchema = z.object({
   firstName: z.string().min(2, "First name must be at least 2 characters"),
@@ -33,13 +31,7 @@ const checkoutSchema = z.object({
     phone: z
     .string()
     .regex(botswanaPhoneRegex, "Please enter a valid Botswana phone number"),
-  address: z
-  .string()
-  .min(5, "Please enter a complete address")
-  .regex(
-    botswanaStreetRegex,
-    "Please enter a valid Botswana address (Plot, House, PO Box, or Private Bag)"
-  ),
+  address: z.string().min(5, "Please enter a complete address"),
   
   city: z.string().min(2, "Please enter a valid city"),
   
@@ -411,7 +403,7 @@ export default function Checkout() {
                           <FormLabel>Street Address</FormLabel>
                           <FormControl>
                            <Input
-  placeholder="Plot 1234, Extension 15, Gaborone West or Private Bag 0070, Gaborone"
+  placeholder="Plot 1234, Gaborone West / 15 Main Road, Francistown"
   {...field}
 />
 

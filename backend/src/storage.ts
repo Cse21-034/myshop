@@ -56,6 +56,8 @@ export interface IStorage {
     featured?: boolean;
     active?: boolean;
     status?: string;
+    limit?: number;
+    offset?: number;
   }): Promise<(Product & { category: Category | null })[]>;
   getProduct(id: number): Promise<Product | undefined>;
   getProductBySlug(slug: string): Promise<Product | undefined>;
@@ -170,6 +172,8 @@ export class DatabaseStorage implements IStorage {
     featured?: boolean;
     active?: boolean;
     status?: string;
+    limit?: number;
+    offset?: number;
   }): Promise<(Product & { category: Category | null })[]> {
     const conditions: any[] = [];
 
@@ -245,7 +249,9 @@ export class DatabaseStorage implements IStorage {
       .from(products)
       .leftJoin(categories, eq(products.categoryId, categories.id))
       .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(desc(products.createdAt));
+      .orderBy(desc(products.createdAt))
+      .limit(filters?.limit ?? 10000)
+      .offset(filters?.offset ?? 0);
 
     // Map to nested product-category structure, handling nullable category fields
     return rows.map(row => {

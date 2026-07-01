@@ -8,7 +8,7 @@ import { db } from "./db";
 import { contactMessages, products } from "./schema";
 import { createStripePaymentIntent, initiateOrangeMoneyPayment } from "./payment";
 import { createPayPalOrder, capturePayPalOrder } from "./paypal-service";
-import { sendEmail, otpEmailTemplate } from "./email";
+import { sendEmail, otpEmailTemplate, orderConfirmationTemplate } from "./email";
 import { setOtp, getOtp, incrementOtpAttempts, deleteOtp } from "./tokenStore";
 import {
   insertProductSchema,
@@ -25,6 +25,9 @@ import { sendWhatsAppMessage, sendReservationStatusToCustomer } from "./twilio";
 // ── ERM Marketplace Integration ───────────────────────────────────────────────
 import { syncMarketplaceProducts } from "./marketplace-sync.service";
 import { notifyERMOfOrder } from "./erm-order-notify.service";
+
+// Simple in-memory rate limiter for contact form (5 submissions per IP per hour)
+const contactRateLimit = new Map<string, number[]>();
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const csrfProtection = csurf();
@@ -697,6 +700,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/products", async (req: Request, res: Response) => {
     try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const offset = req.query.offset ? parseInt(req.query.offset as string) : undefined;
       const filters = {
         categoryId: req.query.categoryId ? parseInt(req.query.categoryId as string) : undefined,
         search: req.query.search as string || undefined,
@@ -704,9 +709,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         maxPrice: req.query.maxPrice ? parseFloat(req.query.maxPrice as string) : undefined,
         featured: req.query.featured === "true" ? true : undefined,
         active: req.query.active !== "false",
+        limit,
+        offset,
       };
-      const products = await storage.getProducts(filters);
-      res.json(products);
+      const productList = await storage.getProducts(filters);
+
+      // When paginating, also return total count for the same filters (without limit/offset)
+      if (limit !== undefined) {
+        const totalList = await storage.getProducts({ ...filters, limit: undefined, offset: undefined });
+        return res.json({ data: productList, total: totalList.length });
+      }
+
+      res.json(productList);
     } catch (error) {
       console.error("Error fetching products:", error);
       res.status(500).json({ message: "Failed to fetch products", code: "FETCH_PRODUCTS_ERROR" });
@@ -851,6 +865,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sessionId = req.sessionID;
       const { orderData, items, fulfillmentType } = req.body;
 
+      // Guard: cart must not be empty
+      if (!items || items.length === 0) {
+        return res.status(400).json({ message: "Cart is empty", code: "EMPTY_CART" });
+      }
+
       // Calculate deposit if any item belongs to a farm product with depositPercent > 0
       let depositAmount: number | undefined;
       let remainingBalance: number | undefined;
@@ -858,6 +877,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const total = parseFloat(orderData.total);
       const productIds: number[] = items.map((i: any) => i.productId).filter(Boolean);
+
+      // Stock validation
+      if (productIds.length > 0) {
+        const stockRows = await db
+          .select({ id: products.id, stock: products.stock, name: products.name })
+          .from(products)
+          .where(sql`${products.id} = ANY(ARRAY[${sql.join(productIds.map((id: number) => sql`${id}`), sql`, `)}]::int[])`);
+
+        for (const item of items as { productId: number; quantity: number }[]) {
+          const prod = stockRows.find((p) => p.id === item.productId);
+          if (prod && prod.stock < item.quantity) {
+            return res.status(400).json({
+              message: `"${prod.name}" only has ${prod.stock} unit(s) in stock`,
+              code: "OUT_OF_STOCK",
+            });
+          }
+        }
+      }
 
       if (productIds.length > 0) {
         const farmProducts = await db
@@ -886,10 +923,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const order = await storage.createOrder(validatedOrder, items);
 
       await storage.clearCart(userId, sessionId);
-      await sendWhatsAppMessage({ ...order, items });
+
+      // Notifications — non-blocking, never kill the order response
+      sendWhatsAppMessage({ ...order, items }).catch((err) =>
+        console.error("[WhatsApp] Admin notification failed:", err),
+      );
       notifyERMOfOrder(order, items).catch((err) =>
         console.error("[ERM Notify] Background notification failed:", err),
       );
+
+      // Order confirmation email to customer
+      const customerEmail = orderData.email;
+      if (customerEmail) {
+        sendEmail(
+          customerEmail,
+          `Order Confirmed — #${order.id} | Fountstream`,
+          orderConfirmationTemplate({ ...order, items }),
+        ).catch((err) => console.error("[Email] Order confirmation failed:", err));
+      }
 
       res.json(order);
     } catch (error) {
@@ -994,6 +1045,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/contact", async (req: Request, res: Response) => {
     try {
+      const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0].trim() || req.socket.remoteAddress || "unknown";
+      const now = Date.now();
+      const windowMs = 60 * 60 * 1000; // 1 hour
+      const recent = (contactRateLimit.get(ip) || []).filter((t) => now - t < windowMs);
+      if (recent.length >= 5) {
+        return res.status(429).json({ message: "Too many messages. Please try again later.", code: "RATE_LIMITED" });
+      }
+      recent.push(now);
+      contactRateLimit.set(ip, recent);
+
       const validatedData = insertContactMessageSchema.parse(req.body);
       const message = await storage.createContactMessage(validatedData);
       res.json(message);

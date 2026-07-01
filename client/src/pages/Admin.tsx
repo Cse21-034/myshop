@@ -729,8 +729,9 @@ export default function Admin() {
             {(orders as Order[]).map((o) => {
               const isReservation = o.status === "awaiting_confirmation";
               const isFarm = !!(o as any).fulfillmentType;
+              const isCashPending = (o as any).paymentMethod === "cash" && o.status === "pending";
               return (
-                <TableRow key={o.id} className={`hover:bg-gray-50/50 border-b border-gray-50 ${isReservation ? "bg-amber-50/50" : ""}`}>
+                <TableRow key={o.id} className={`hover:bg-gray-50/50 border-b border-gray-50 ${isReservation ? "bg-amber-50/50" : isCashPending ? "bg-orange-50/40" : ""}`}>
                   <TableCell className="pl-6 font-mono text-xs text-gray-500">#{o.id}</TableCell>
                   <TableCell>
                     <p className="text-sm font-medium">{o.firstName} {o.lastName}</p>
@@ -739,6 +740,7 @@ export default function Admin() {
                   <TableCell>
                     <p className="text-sm font-semibold">${o.total}</p>
                     {(o as any).depositAmount && <p className="text-xs text-amber-600">Deposit: ${(o as any).depositAmount}</p>}
+                    {isCashPending && <span className="text-xs font-medium text-orange-600 bg-orange-100 rounded px-1.5 py-0.5 mt-0.5 inline-block">Cash due</span>}
                   </TableCell>
                   <TableCell>
                     <Badge className={`text-xs ${

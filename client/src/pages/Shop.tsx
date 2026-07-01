@@ -18,6 +18,8 @@ import type { Product } from "@shared/schema";
 
 const backendURL = (import.meta.env.VITE_API_BASE_URL || "https://myshop-test-backend.onrender.com").replace(/\/$/, "");
 
+const PAGE_SIZE = 24;
+
 export default function Shop() {
   const [location] = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
@@ -27,11 +29,13 @@ export default function Shop() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setSearchQuery(params.get("search") || "");
     setSelectedCategory(params.get("category") || "");
+    setPage(1);
   }, [location]);
 
   const { data: categories = [] } = useQuery({
@@ -43,14 +47,15 @@ export default function Shop() {
     },
   });
 
-  const { data: products = [], isLoading } = useQuery({
-    queryKey: ["products", { searchQuery, selectedCategory, priceRange }],
+  const { data: productsResponse, isLoading } = useQuery({
+    queryKey: ["products", { searchQuery, selectedCategory, priceRange, page }],
     enabled: categories.length > 0,
     queryFn: async () => {
       const params = new URLSearchParams();
-      // Always filter for active products in the shop
       params.append("active", "true");
       params.append("status", "active");
+      params.append("limit", PAGE_SIZE.toString());
+      params.append("offset", ((page - 1) * PAGE_SIZE).toString());
 
       if (searchQuery) params.append("search", searchQuery);
       if (selectedCategory) {
@@ -59,13 +64,16 @@ export default function Shop() {
       }
       if (priceRange.min) params.append("minPrice", priceRange.min);
       if (priceRange.max) params.append("maxPrice", priceRange.max);
-      params.append("active", "true");
 
       const response = await fetch(`${backendURL}/api/products?${params.toString()}`);
       if (!response.ok) throw new Error("Failed to fetch products");
-      return response.json();
+      return response.json() as Promise<{ data: Product[]; total: number }>;
     },
   });
+
+  const products: Product[] = productsResponse?.data ?? [];
+  const totalProducts: number = productsResponse?.total ?? 0;
+  const totalPages = Math.ceil(totalProducts / PAGE_SIZE);
 
   const sortedProducts = [...products].sort((a, b) => {
     switch (sortBy) {
@@ -101,6 +109,7 @@ export default function Shop() {
     setSelectedCategory("");
     setPriceRange({ min: "", max: "" });
     setSortBy("featured");
+    setPage(1);
     window.history.pushState({}, "", "/shop");
     setIsFilterOpen(false);
   };
@@ -333,7 +342,7 @@ export default function Shop() {
               <>
                 <div className="flex items-center justify-between mb-4 md:mb-6">
                   <p className="text-sm md:text-base text-gray-600">
-                    Showing {sortedProducts.length} product{sortedProducts.length !== 1 ? 's' : ''}
+                    Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, totalProducts)} of {totalProducts} product{totalProducts !== 1 ? "s" : ""}
                   </p>
                 </div>
 
@@ -344,6 +353,50 @@ export default function Shop() {
                     </div>
                   ))}
                 </div>
+
+                {/* Pagination controls */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-center gap-2 mt-8">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={page === 1}
+                      onClick={() => { setPage(p => p - 1); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                    >
+                      ← Prev
+                    </Button>
+                    {Array.from({ length: totalPages }, (_, i) => i + 1)
+                      .filter(p => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+                      .reduce<(number | "...")[]>((acc, p, idx, arr) => {
+                        if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("...");
+                        acc.push(p);
+                        return acc;
+                      }, [])
+                      .map((item, idx) =>
+                        item === "..." ? (
+                          <span key={`ellipsis-${idx}`} className="px-2 text-gray-400">…</span>
+                        ) : (
+                          <Button
+                            key={item}
+                            variant={item === page ? "default" : "outline"}
+                            size="sm"
+                            className="w-9"
+                            onClick={() => { setPage(item as number); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                          >
+                            {item}
+                          </Button>
+                        )
+                      )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={page === totalPages}
+                      onClick={() => { setPage(p => p + 1); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                    >
+                      Next →
+                    </Button>
+                  </div>
+                )}
               </>
             )}
           </div>
