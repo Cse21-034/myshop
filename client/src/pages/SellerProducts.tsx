@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useRoute } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { apiRequest, getQueryFn, createQueryKey } from "@/lib/queryClient";
+import { apiRequest, getQueryFn, createQueryKey, BASE_URL } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -14,32 +14,146 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Edit, Trash2, ArrowLeft, Package } from "lucide-react";
+import {
+  Plus, Edit, Trash2, ArrowLeft, Package,
+  Image as ImageIcon, Upload, X, Ruler, Palette,
+} from "lucide-react";
 
 const USD_TO_BWP = 13.5;
-const fmtBWP = (usd: string) => `P ${(parseFloat(usd) * USD_TO_BWP).toLocaleString("en-BW", { minimumFractionDigits: 2 })}`;
+const fmtBWP = (usd: string) =>
+  `P ${(parseFloat(usd) * USD_TO_BWP).toLocaleString("en-BW", { minimumFractionDigits: 2 })}`;
+
+const generateSlug = (name: string) =>
+  name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
 const productSchema = z.object({
   name: z.string().min(1, "Name is required"),
   slug: z.string().min(1, "Slug is required"),
   description: z.string().optional(),
   price: z.string().min(1, "Price is required"),
+  originalPrice: z.string().optional(),
+  categoryId: z.coerce.number().optional(),
+  supplierUrl: z.string().url("Enter a valid URL").optional().or(z.literal("")),
   stock: z.coerce.number().min(0),
   status: z.enum(["active", "inactive", "sold", "out_of_stock"]).default("active"),
-  supplierUrl: z.string().url().optional().or(z.literal("")),
+  images: z.array(z.string()).default([]),
+  sizes: z.array(z.string()).default([]),
+  colors: z.array(z.string()).default([]),
+  featured: z.boolean().default(false),
+  active: z.boolean().default(true),
   depositPercent: z.coerce.number().min(0).max(100).default(0),
 });
 
 type ProductFormData = z.infer<typeof productSchema>;
 
-function ProductForm({ product, onSave, onCancel }: { product?: any; onSave: (d: ProductFormData) => void; onCancel: () => void }) {
+function ProductForm({
+  product,
+  categories,
+  onSave,
+  onCancel,
+  isPending,
+}: {
+  product?: any;
+  categories: any[];
+  onSave: (d: ProductFormData) => void;
+  onCancel: () => void;
+  isPending: boolean;
+}) {
+  const [bulkImageUrls, setBulkImageUrls] = useState("");
+  const [newSize, setNewSize] = useState("");
+  const [newColor, setNewColor] = useState("");
+
   const form = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
     defaultValues: product
-      ? { ...product, price: product.price, stock: product.stock ?? 0, depositPercent: product.depositPercent ?? 0 }
-      : { name: "", slug: "", description: "", price: "", stock: 0, status: "active", supplierUrl: "", depositPercent: 0 },
+      ? {
+          name: product.name,
+          slug: product.slug,
+          description: product.description || "",
+          price: product.price,
+          originalPrice: product.originalPrice || "",
+          categoryId: product.categoryId ?? undefined,
+          supplierUrl: product.supplierUrl || "",
+          stock: product.stock ?? 0,
+          status: product.status || "active",
+          images: product.images || [],
+          sizes: product.sizes || [],
+          colors: product.colors || [],
+          featured: product.featured ?? false,
+          active: product.active ?? true,
+          depositPercent: product.depositPercent ?? 0,
+        }
+      : {
+          name: "", slug: "", description: "", price: "", originalPrice: "",
+          categoryId: undefined, supplierUrl: "", stock: 0, status: "active",
+          images: [], sizes: [], colors: [], featured: false, active: true, depositPercent: 0,
+        },
   });
+
+  const watchedImages = form.watch("images");
+  const watchedSizes = form.watch("sizes");
+  const watchedColors = form.watch("colors");
+  const watchedStock = form.watch("stock");
+  const watchedStatus = form.watch("status");
+
+  // Auto-sync status with stock
+  useEffect(() => {
+    if (watchedStock === 0 && watchedStatus !== "sold") {
+      form.setValue("status", "out_of_stock");
+    } else if (watchedStock > 0 && watchedStatus === "out_of_stock") {
+      form.setValue("status", "active");
+    }
+  }, [watchedStock, watchedStatus, form]);
+
+  // Auto-generate slug from name (new products only)
+  useEffect(() => {
+    const sub = form.watch((value, { name }) => {
+      if (name === "name" && value.name && !product) {
+        form.setValue("slug", generateSlug(value.name));
+      }
+    });
+    return () => sub.unsubscribe();
+  }, [form, product]);
+
+  function handleBulkImageUpload() {
+    const urls = bulkImageUrls
+      .split("\n")
+      .map(u => u.trim())
+      .filter(u => u.startsWith("http"));
+    if (urls.length === 0) return;
+    form.setValue("images", [...(form.getValues("images") || []), ...urls]);
+    setBulkImageUrls("");
+  }
+
+  function handleRemoveImage(index: number) {
+    const imgs = [...(form.getValues("images") || [])];
+    imgs.splice(index, 1);
+    form.setValue("images", imgs);
+  }
+
+  function handleAddSize() {
+    const s = newSize.trim();
+    if (!s) return;
+    form.setValue("sizes", [...(form.getValues("sizes") || []), s]);
+    setNewSize("");
+  }
+
+  function handleRemoveSize(size: string) {
+    form.setValue("sizes", (form.getValues("sizes") || []).filter(s => s !== size));
+  }
+
+  function handleAddColor() {
+    const c = newColor.trim();
+    if (!c) return;
+    form.setValue("colors", [...(form.getValues("colors") || []), c]);
+    setNewColor("");
+  }
+
+  function handleRemoveColor(color: string) {
+    form.setValue("colors", (form.getValues("colors") || []).filter(c => c !== color));
+  }
 
   return (
     <Card>
@@ -48,19 +162,14 @@ function ProductForm({ product, onSave, onCancel }: { product?: any; onSave: (d:
       </CardHeader>
       <CardContent>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSave)} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+          <form onSubmit={form.handleSubmit(onSave)} className="space-y-6">
+
+            {/* Name + Slug */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormField control={form.control} name="name" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Product Name *</FormLabel>
-                  <FormControl><Input placeholder="e.g. Fresh Maize 50kg" {...field}
-                    onChange={e => {
-                      field.onChange(e);
-                      if (!product) {
-                        form.setValue("slug", e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""));
-                      }
-                    }}
-                  /></FormControl>
+                  <FormControl><Input placeholder="e.g. Fresh Maize 50kg" {...field} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
@@ -72,6 +181,8 @@ function ProductForm({ product, onSave, onCancel }: { product?: any; onSave: (d:
                 </FormItem>
               )} />
             </div>
+
+            {/* Description */}
             <FormField control={form.control} name="description" render={({ field }) => (
               <FormItem>
                 <FormLabel>Description</FormLabel>
@@ -79,7 +190,9 @@ function ProductForm({ product, onSave, onCancel }: { product?: any; onSave: (d:
                 <FormMessage />
               </FormItem>
             )} />
-            <div className="grid grid-cols-3 gap-4">
+
+            {/* Price + Original Price */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormField control={form.control} name="price" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Price (USD) *</FormLabel>
@@ -87,6 +200,49 @@ function ProductForm({ product, onSave, onCancel }: { product?: any; onSave: (d:
                   <FormMessage />
                 </FormItem>
               )} />
+              <FormField control={form.control} name="originalPrice" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Original Price (USD)</FormLabel>
+                  <FormControl><Input type="number" step="0.01" placeholder="0.00" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+            </div>
+
+            {/* Category */}
+            <FormField control={form.control} name="categoryId" render={({ field }) => (
+              <FormItem>
+                <FormLabel>Category</FormLabel>
+                <Select
+                  onValueChange={v => field.onChange(Number(v))}
+                  value={field.value?.toString()}
+                >
+                  <FormControl>
+                    <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {categories.map((c: any) => (
+                      <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )} />
+
+            {/* Supplier URL */}
+            <FormField control={form.control} name="supplierUrl" render={({ field }) => (
+              <FormItem>
+                <FormLabel>Supplier URL</FormLabel>
+                <FormControl>
+                  <Input placeholder="https://supplier-website.com/product" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+
+            {/* Stock + Status + Deposit */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <FormField control={form.control} name="stock" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Stock</FormLabel>
@@ -94,15 +250,6 @@ function ProductForm({ product, onSave, onCancel }: { product?: any; onSave: (d:
                   <FormMessage />
                 </FormItem>
               )} />
-              <FormField control={form.control} name="depositPercent" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Deposit % (0 = no deposit)</FormLabel>
-                  <FormControl><Input type="number" min="0" max="100" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
               <FormField control={form.control} name="status" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Status</FormLabel>
@@ -118,16 +265,141 @@ function ProductForm({ product, onSave, onCancel }: { product?: any; onSave: (d:
                   <FormMessage />
                 </FormItem>
               )} />
-              <FormField control={form.control} name="supplierUrl" render={({ field }) => (
+              <FormField control={form.control} name="depositPercent" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Product Image URL</FormLabel>
-                  <FormControl><Input placeholder="https://..." {...field} /></FormControl>
+                  <FormLabel>Deposit % (0 = no deposit)</FormLabel>
+                  <FormControl><Input type="number" min="0" max="100" {...field} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
             </div>
+
+            {/* Product Images */}
+            <div className="space-y-4">
+              <FormLabel className="flex items-center gap-2">
+                <ImageIcon className="h-4 w-4" />
+                Product Images
+              </FormLabel>
+              <div className="space-y-2">
+                <label className="text-sm text-gray-600">Bulk Upload (One URL per line)</label>
+                <Textarea
+                  placeholder={"https://example.com/image1.jpg\nhttps://example.com/image2.jpg\nhttps://example.com/image3.jpg"}
+                  value={bulkImageUrls}
+                  onChange={e => setBulkImageUrls(e.target.value)}
+                  rows={4}
+                />
+                <Button type="button" onClick={handleBulkImageUpload} variant="outline" size="sm">
+                  <Upload className="h-4 w-4 mr-2" />
+                  Add All Images
+                </Button>
+              </div>
+              {watchedImages && watchedImages.length > 0 ? (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {watchedImages.map((url, i) => (
+                    <div key={i} className="relative group">
+                      <img src={url} alt={`Product image ${i + 1}`} className="w-full h-24 object-cover rounded border" />
+                      <Button
+                        type="button" variant="destructive" size="sm"
+                        className="absolute top-1 right-1 h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => handleRemoveImage(i)}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                  <ImageIcon className="h-12 w-12 mx-auto text-gray-400 mb-2" />
+                  <p className="text-gray-500">No images added yet</p>
+                </div>
+              )}
+            </div>
+
+            {/* Available Sizes */}
+            <div className="space-y-4">
+              <FormLabel className="flex items-center gap-2">
+                <Ruler className="h-4 w-4" />
+                Available Sizes
+              </FormLabel>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Enter size (e.g., S, M, L, XL)"
+                  value={newSize}
+                  onChange={e => setNewSize(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && (e.preventDefault(), handleAddSize())}
+                  className="flex-1"
+                />
+                <Button type="button" onClick={handleAddSize} variant="outline">
+                  <Plus className="h-4 w-4 mr-2" /> Add Size
+                </Button>
+              </div>
+              {watchedSizes && watchedSizes.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {watchedSizes.map((size, i) => (
+                    <Badge key={i} variant="secondary" className="cursor-pointer hover:bg-red-100">
+                      {size}
+                      <button type="button" className="ml-2" onClick={() => handleRemoveSize(size)}>
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Available Colors */}
+            <div className="space-y-4">
+              <FormLabel className="flex items-center gap-2">
+                <Palette className="h-4 w-4" />
+                Available Colors
+              </FormLabel>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Enter color (e.g., Red, Blue, Black)"
+                  value={newColor}
+                  onChange={e => setNewColor(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && (e.preventDefault(), handleAddColor())}
+                  className="flex-1"
+                />
+                <Button type="button" onClick={handleAddColor} variant="outline">
+                  <Plus className="h-4 w-4 mr-2" /> Add Color
+                </Button>
+              </div>
+              {watchedColors && watchedColors.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {watchedColors.map((color, i) => (
+                    <Badge key={i} variant="secondary" className="cursor-pointer hover:bg-red-100">
+                      {color}
+                      <button type="button" className="ml-2" onClick={() => handleRemoveColor(color)}>
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Featured + Active */}
+            <div className="flex items-center space-x-6">
+              <FormField control={form.control} name="featured" render={({ field }) => (
+                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                  <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                  <FormLabel>Featured Product</FormLabel>
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="active" render={({ field }) => (
+                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                  <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                  <FormLabel>Active</FormLabel>
+                </FormItem>
+              )} />
+            </div>
+
             <div className="flex gap-3 pt-2">
-              <Button type="submit" className="flex-1">Save Product</Button>
+              <Button type="submit" className="flex-1" disabled={isPending}>
+                {isPending ? "Saving..." : product ? "Update Product" : "Create Product"}
+              </Button>
               <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
             </div>
           </form>
@@ -149,6 +421,14 @@ export default function SellerProducts() {
     queryFn: getQueryFn({ on401: "returnNull" }),
   });
 
+  const { data: categories = [] } = useQuery({
+    queryKey: ["/api/categories"],
+    queryFn: async () => {
+      const res = await fetch(`${BASE_URL}/api/categories`);
+      return res.json();
+    },
+  });
+
   const { data: products = [], isLoading } = useQuery({
     queryKey: createQueryKey("/api/seller/products"),
     queryFn: getQueryFn({ on401: "returnNull" }),
@@ -157,7 +437,7 @@ export default function SellerProducts() {
 
   const createMutation = useMutation({
     mutationFn: async (data: ProductFormData) => {
-      const res = await apiRequest("POST", "/api/seller/products", { ...data, images: [], sizes: [], colors: [] });
+      const res = await apiRequest("POST", "/api/seller/products", data);
       if (!res.ok) throw new Error((await res.json()).message);
     },
     onSuccess: () => {
@@ -204,13 +484,15 @@ export default function SellerProducts() {
     return (
       <div className="min-h-screen flex flex-col bg-gray-50">
         <Header />
-        <main className="flex-grow container mx-auto px-4 py-8 max-w-2xl">
+        <main className="flex-grow container mx-auto px-4 py-8 max-w-3xl">
           <Button variant="ghost" className="mb-4 gap-1" onClick={() => navigate("/seller/products")}>
             <ArrowLeft className="h-4 w-4" /> Back to Products
           </Button>
           <ProductForm
+            categories={categories}
             onSave={d => createMutation.mutate(d)}
             onCancel={() => navigate("/seller/products")}
+            isPending={createMutation.isPending}
           />
         </main>
         <Footer />
@@ -224,7 +506,9 @@ export default function SellerProducts() {
       <main className="flex-grow container mx-auto px-4 py-8 max-w-5xl">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={() => navigate("/seller/dashboard")}><ArrowLeft className="h-4 w-4" /></Button>
+            <Button variant="ghost" size="sm" onClick={() => navigate("/seller/dashboard")}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
             <h1 className="text-2xl font-bold text-primary">My Products</h1>
           </div>
           <Button onClick={() => navigate("/seller/products/new")} className="gap-2">
@@ -233,11 +517,13 @@ export default function SellerProducts() {
         </div>
 
         {editingProduct && (
-          <div className="mb-6">
+          <div className="mb-8">
             <ProductForm
               product={editingProduct}
+              categories={categories}
               onSave={d => updateMutation.mutate({ id: editingProduct.id, data: d })}
               onCancel={() => setEditingProduct(null)}
+              isPending={updateMutation.isPending}
             />
           </div>
         )}
@@ -264,8 +550,16 @@ export default function SellerProducts() {
                   />
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold truncate">{p.name}</p>
-                    <p className="text-sm text-gray-500">Stock: {p.stock ?? 0} · {fmtBWP(p.price)}</p>
-                    {p.depositPercent > 0 && <p className="text-xs text-amber-600">{p.depositPercent}% deposit required</p>}
+                    <p className="text-sm text-gray-500">
+                      Stock: {p.stock ?? 0} · {fmtBWP(p.price)}
+                      {p.originalPrice && <span className="line-through text-gray-400 ml-2">{fmtBWP(p.originalPrice)}</span>}
+                    </p>
+                    <div className="flex gap-1 mt-1 flex-wrap">
+                      {p.featured && <Badge className="text-xs bg-yellow-100 text-yellow-700">Featured</Badge>}
+                      {p.sizes?.length > 0 && <Badge variant="outline" className="text-xs">{p.sizes.length} sizes</Badge>}
+                      {p.colors?.length > 0 && <Badge variant="outline" className="text-xs">{p.colors.length} colors</Badge>}
+                      {p.depositPercent > 0 && <Badge className="text-xs bg-amber-100 text-amber-700">{p.depositPercent}% deposit</Badge>}
+                    </div>
                   </div>
                   <Badge className={`text-xs ${statusBadge[p.status] ?? "bg-gray-100"}`}>{p.status}</Badge>
                   <div className="flex gap-2">
