@@ -1,22 +1,12 @@
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { MapPin, Phone, Truck, ShieldCheck, Leaf, Package, Bird } from "lucide-react";
+import { MapPin, Truck } from "lucide-react";
 
 const USD_TO_BWP = 13.5;
 
 function formatBWP(usd: number) {
   return `P ${(usd * USD_TO_BWP).toLocaleString("en-BW", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function entityIcon(entityType: string) {
-  switch (entityType) {
-    case "livestock": return "🐄";
-    case "crop":      return "🌾";
-    case "poultry":   return "🐔";
-    case "inventory": return "📦";
-    default:          return "🌿";
-  }
 }
 
 function entityLabel(entityType: string) {
@@ -152,15 +142,15 @@ export default function FarmProductCard({ product }: FarmProductCardProps) {
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-5xl">
-              {entityIcon(entityType ?? "")}
+            <div className="w-full h-full flex items-center justify-center bg-green-50 text-green-400 text-sm font-medium">
+              {entityLabel(entityType ?? "")}
             </div>
           )}
 
           {/* Entity type badge */}
           <div className="absolute top-2 left-2">
             <Badge variant={entityBadgeColor(entityType ?? "")} className="text-xs">
-              {entityIcon(entityType ?? "")} {entityLabel(entityType ?? "")}
+              {entityLabel(entityType ?? "")}
             </Badge>
           </div>
 

@@ -11,16 +11,16 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { Search, Filter, X, SlidersHorizontal, Leaf } from "lucide-react";
+import { Search, Filter, X, SlidersHorizontal } from "lucide-react";
 
 const USD_TO_BWP = 13.5;
 
 const ENTITY_TYPES = [
-  { value: "",          label: "All Categories",    emoji: "🌿" },
-  { value: "livestock", label: "Livestock",          emoji: "🐄" },
-  { value: "crop",      label: "Crops",              emoji: "🌾" },
-  { value: "poultry",   label: "Poultry",            emoji: "🐔" },
-  { value: "inventory", label: "Farm Supplies",      emoji: "📦" },
+  { value: "",          label: "All Categories" },
+  { value: "livestock", label: "Livestock" },
+  { value: "crop",      label: "Crops" },
+  { value: "poultry",   label: "Poultry" },
+  { value: "inventory", label: "Farm Supplies" },
 ];
 
 export default function FarmMarket() {
@@ -120,7 +120,7 @@ export default function FarmMarket() {
       <div>
         <h4 className="font-medium mb-3 text-sm">Category</h4>
         <div className="space-y-2">
-          {ENTITY_TYPES.map(({ value, label, emoji }) => (
+          {ENTITY_TYPES.map(({ value, label }) => (
             <div key={value} className="flex items-center space-x-2">
               <Checkbox
                 id={`type-${value}`}
@@ -128,7 +128,7 @@ export default function FarmMarket() {
                 onCheckedChange={() => setActiveType(value)}
               />
               <label htmlFor={`type-${value}`} className="text-xs md:text-sm cursor-pointer">
-                {emoji} {label}
+                {label}
               </label>
             </div>
           ))}
@@ -225,10 +225,7 @@ export default function FarmMarket() {
       {/* Hero */}
       <div className="bg-green-800 text-white py-10 px-4">
         <div className="container mx-auto max-w-6xl">
-          <div className="flex items-center gap-2 mb-1">
-            <Leaf className="h-6 w-6 text-green-300" />
-            <h1 className="text-2xl md:text-3xl font-bold">Farm Market</h1>
-          </div>
+          <h1 className="text-2xl md:text-3xl font-bold mb-1">Farm Market</h1>
           <p className="text-green-200 text-sm mb-4">
             Buy directly from local farms — livestock, fresh produce, poultry &amp; supplies
           </p>
