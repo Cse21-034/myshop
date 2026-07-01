@@ -233,6 +233,7 @@ export class DatabaseStorage implements IStorage {
         unit: products.unit,
         allowsDelivery: products.allowsDelivery,
         depositPercent: products.depositPercent,
+        sellerId: products.sellerId,
 
         category_id: categories.id,
         category_name: categories.name,
