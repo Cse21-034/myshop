@@ -83,6 +83,45 @@ async function migrate() {
       UNIQUE(user_id, product_id)
     )`,
 
+    // Stock notifications
+    `CREATE TABLE IF NOT EXISTS stock_notifications (
+      id serial PRIMARY KEY,
+      email varchar NOT NULL,
+      product_id integer NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      notified boolean DEFAULT false,
+      created_at timestamp DEFAULT now(),
+      UNIQUE(email, product_id)
+    )`,
+
+    // Return / refund requests
+    `CREATE TABLE IF NOT EXISTS return_requests (
+      id serial PRIMARY KEY,
+      order_id integer NOT NULL REFERENCES orders(id),
+      user_id varchar NOT NULL REFERENCES users(id),
+      reason text NOT NULL,
+      status varchar DEFAULT 'pending',
+      admin_note text,
+      created_at timestamp DEFAULT now()
+    )`,
+
+    // Coupon / discount codes
+    `CREATE TABLE IF NOT EXISTS coupons (
+      id serial PRIMARY KEY,
+      code varchar(50) NOT NULL UNIQUE,
+      type varchar NOT NULL,
+      value decimal(10,2) NOT NULL,
+      min_order decimal(10,2) DEFAULT 0,
+      max_uses integer,
+      used_count integer DEFAULT 0,
+      expires_at timestamp,
+      active boolean DEFAULT true,
+      created_at timestamp DEFAULT now()
+    )`,
+
+    // Coupon usage tracking (which order used which coupon)
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS coupon_code varchar`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount decimal(10,2) DEFAULT 0`,
+
     // Kgotla marketplace bridge table
     `CREATE TABLE IF NOT EXISTS kgotla_product_map (
       id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

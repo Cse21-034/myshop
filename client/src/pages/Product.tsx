@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Star, Check, ArrowLeft, Heart, Bookmark, ShieldCheck } from "lucide-react";
+import { Star, Check, ArrowLeft, Heart, Bookmark, ShieldCheck, Bell } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -79,6 +79,10 @@ export default function ProductPage() {
   const [isZoomed, setIsZoomed] = useState(false);
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
 
+  // Back-in-stock notification state
+  const [notifyEmail, setNotifyEmail] = useState("");
+  const [notifyDone, setNotifyDone] = useState(false);
+
   // Review form state
   const [reviewRating, setReviewRating] = useState(0);
   const [reviewTitle, setReviewTitle] = useState("");
@@ -120,6 +124,30 @@ export default function ProductPage() {
     enabled: !!product?.categoryId,
   });
 
+  // SEO meta tags
+  useEffect(() => {
+    if (!product) return;
+    const price = (parseFloat(product.price) * USD_TO_BWP).toFixed(2);
+    document.title = `${product.name} — P ${price} | Fountstream`;
+    const setMeta = (name: string, content: string) => {
+      let el = document.querySelector(`meta[name="${name}"]`) as HTMLMetaElement;
+      if (!el) { el = document.createElement("meta"); el.name = name; document.head.appendChild(el); }
+      el.content = content;
+    };
+    const setOg = (prop: string, content: string) => {
+      let el = document.querySelector(`meta[property="${prop}"]`) as HTMLMetaElement;
+      if (!el) { el = document.createElement("meta"); el.setAttribute("property", prop); document.head.appendChild(el); }
+      el.content = content;
+    };
+    const desc = product.description?.slice(0, 155) ?? `Buy ${product.name} on Fountstream`;
+    setMeta("description", desc);
+    setOg("og:title", `${product.name} | Fountstream`);
+    setOg("og:description", desc);
+    setOg("og:type", "product");
+    if (product.images?.[0]) setOg("og:image", product.images[0]);
+    return () => { document.title = "Fountstream"; };
+  }, [product]);
+
   // ── Mutations ──────────────────────────────────────────────────────────────
 
   const likeMutation = useMutation({
@@ -137,6 +165,12 @@ export default function ProductPage() {
       toast({ title: saved ? "Added to wishlist" : "Removed from wishlist" });
     },
     onError: () => toast({ title: "Please log in to save to wishlist", variant: "destructive" }),
+  });
+
+  const notifyMutation = useMutation({
+    mutationFn: (email: string) => apiRequest("POST", `/api/products/${id}/notify-stock`, { email }),
+    onSuccess: () => { setNotifyDone(true); toast({ title: "We'll email you when it's back in stock!" }); },
+    onError: () => toast({ title: "Failed to subscribe", variant: "destructive" }),
   });
 
   const reviewMutation = useMutation({
@@ -335,10 +369,24 @@ export default function ProductPage() {
 
             {/* Action buttons */}
             <div className="space-y-2 sm:space-y-3 mb-6 sm:mb-8">
-              <Button className="w-full bg-primary hover:bg-gray-800 h-10 sm:h-12 text-sm sm:text-base" onClick={handleAddToCart} disabled={(product.stock ?? 0) <= 0}>
-                {(product.stock ?? 0) <= 0 ? "Out of Stock" : "Add to Cart"}
-              </Button>
-              <Button variant="outline" className="w-full h-10 sm:h-12 text-sm sm:text-base">Buy Now</Button>
+              {(product.stock ?? 0) > 0 ? (
+                <>
+                  <Button className="w-full bg-primary hover:bg-gray-800 h-10 sm:h-12 text-sm sm:text-base" onClick={handleAddToCart}>Add to Cart</Button>
+                  <Button variant="outline" className="w-full h-10 sm:h-12 text-sm sm:text-base">Buy Now</Button>
+                </>
+              ) : (
+                <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                  <p className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2"><Bell className="h-4 w-4 text-amber-500" />Notify me when back in stock</p>
+                  {notifyDone ? (
+                    <p className="text-sm text-green-600 flex items-center gap-2"><Check className="h-4 w-4" />You'll be notified at {notifyEmail}</p>
+                  ) : (
+                    <div className="flex gap-2">
+                      <Input type="email" placeholder="your@email.com" value={notifyEmail} onChange={(e) => setNotifyEmail(e.target.value)} className="h-9 text-sm" />
+                      <Button size="sm" className="h-9 shrink-0" disabled={!notifyEmail || notifyMutation.isPending} onClick={() => notifyMutation.mutate(notifyEmail)}>Notify Me</Button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <Separator className="mb-4 sm:mb-6" />

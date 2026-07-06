@@ -27,7 +27,7 @@ import {
   type InsertSeller,
 } from "./schema";
 import { db } from "./db";
-import { eq, desc, and, like, gte, lte, sql } from "drizzle-orm";
+import { eq, desc, and, like, ilike, or, gte, lte, sql } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -181,7 +181,8 @@ export class DatabaseStorage implements IStorage {
       conditions.push(eq(products.categoryId, filters.categoryId));
     }
     if (filters?.search) {
-      conditions.push(like(products.name, `%${filters.search}%`));
+      const term = `%${filters.search}%`;
+      conditions.push(or(ilike(products.name, term), ilike(products.description, term))!);
     }
     if (filters?.minPrice !== undefined) {
       conditions.push(gte(products.price, filters.minPrice.toString()));

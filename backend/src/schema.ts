@@ -114,6 +114,8 @@ export const orders = pgTable("orders", {
   // Lets guests view their own order confirmation without logging in
   accessToken: varchar("access_token"),
   trackingNumber: varchar("tracking_number"),
+  couponCode: varchar("coupon_code"),
+  discountAmount: decimal("discount_amount", { precision: 10, scale: 2 }).default("0"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -180,6 +182,44 @@ export const productReviews = pgTable(
   },
   (t) => [uniqueIndex("uq_product_reviews_user_product").on(t.userId, t.productId)],
 );
+
+// Stock notifications — subscribe to back-in-stock alerts
+export const stockNotifications = pgTable(
+  "stock_notifications",
+  {
+    id:        serial("id").primaryKey(),
+    email:     varchar("email").notNull(),
+    productId: integer("product_id").references(() => products.id).notNull(),
+    notified:  boolean("notified").default(false),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (t) => [uniqueIndex("uq_stock_notify_email_product").on(t.email, t.productId)],
+);
+
+// Return / refund requests
+export const returnRequests = pgTable("return_requests", {
+  id:        serial("id").primaryKey(),
+  orderId:   integer("order_id").references(() => orders.id).notNull(),
+  userId:    varchar("user_id").references(() => users.id).notNull(),
+  reason:    text("reason").notNull(),
+  status:    varchar("status").default("pending"), // pending | approved | rejected
+  adminNote: text("admin_note"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Coupons / discount codes
+export const coupons = pgTable("coupons", {
+  id:         serial("id").primaryKey(),
+  code:       varchar("code", { length: 50 }).notNull().unique(),
+  type:       varchar("type").notNull(),  // percent | fixed
+  value:      decimal("value", { precision: 10, scale: 2 }).notNull(),
+  minOrder:   decimal("min_order", { precision: 10, scale: 2 }).default("0"),
+  maxUses:    integer("max_uses"),        // null = unlimited
+  usedCount:  integer("used_count").default(0),
+  expiresAt:  timestamp("expires_at"),
+  active:     boolean("active").default(true),
+  createdAt:  timestamp("created_at").defaultNow(),
+});
 
 // Contact messages table
 export const contactMessages = pgTable("contact_messages", {
@@ -279,6 +319,15 @@ export type ContactMessage = typeof contactMessages.$inferSelect;
 
 export type InsertSeller = typeof sellers.$inferInsert;
 export type Seller = typeof sellers.$inferSelect;
+
+export type InsertStockNotification = typeof stockNotifications.$inferInsert;
+export type StockNotification = typeof stockNotifications.$inferSelect;
+
+export type InsertReturnRequest = typeof returnRequests.$inferInsert;
+export type ReturnRequest = typeof returnRequests.$inferSelect;
+
+export type InsertCoupon = typeof coupons.$inferInsert;
+export type Coupon = typeof coupons.$inferSelect;
 
 // Enhanced schemas with new fields
 export const insertCategorySchema = createInsertSchema(categories).omit({

@@ -22,7 +22,8 @@ import {
   Package, ShoppingCart, Users, DollarSign, Mail, Plus, Edit, Trash2, X,
   Image as ImageIcon, Link, Palette, Ruler, RefreshCw, CheckCircle2,
   AlertCircle, Tractor, Store, CheckCircle, XCircle, Menu, TrendingUp,
-  LayoutDashboard, LogOut, Activity, Bell, ExternalLink,
+  LayoutDashboard, LogOut, Activity, Bell, ExternalLink, RotateCcw,
+  Tag, Upload, FileText,
 } from "lucide-react";
 import CloudinaryUpload from "@/components/CloudinaryUpload";
 import {
@@ -57,7 +58,7 @@ const messageStatusSchema = z.object({
 });
 type ProductFormData = z.infer<typeof productSchema>;
 
-type Section = "overview" | "products" | "orders" | "messages" | "sellers" | "farm" | "kgotla";
+type Section = "overview" | "products" | "orders" | "messages" | "sellers" | "farm" | "kgotla" | "returns" | "coupons";
 
 // ── Chart colours ─────────────────────────────────────────────────────────────
 const PIE_COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
@@ -112,6 +113,155 @@ function NavItem({ icon: Icon, label, active, badge, onClick }: {
         </span>
       ) : null}
     </button>
+  );
+}
+
+// ── Returns section ───────────────────────────────────────────────────────────
+function ReturnsSection({ returns, refetch }: { returns: any[]; refetch: () => void }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [selectedReturn, setSelectedReturn] = useState<any>(null);
+  const [adminNote, setAdminNote] = useState("");
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, status, note }: { id: number; status: string; note: string }) =>
+      apiRequest("PATCH", `/api/admin/returns/${id}`, { status, adminNote: note }),
+    onSuccess: () => { toast({ title: "Return updated" }); refetch(); setSelectedReturn(null); },
+    onError: () => toast({ title: "Failed to update", variant: "destructive" }),
+  });
+
+  return (
+    <Card className="border-0 shadow-sm">
+      <CardHeader><CardTitle className="text-base flex items-center gap-2"><RotateCcw className="h-5 w-5" />Return Requests ({returns.length})</CardTitle></CardHeader>
+      <CardContent className="p-0">
+        {returns.length === 0 ? <div className="text-center text-gray-400 py-12 text-sm">No return requests yet</div> : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader><TableRow><TableHead className="pl-6">Order</TableHead><TableHead>Customer</TableHead><TableHead>Reason</TableHead><TableHead>Status</TableHead><TableHead>Date</TableHead><TableHead className="pr-6">Action</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {returns.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell className="pl-6 font-mono text-xs">#{r.orderId}</TableCell>
+                    <TableCell className="text-sm">{r.orderEmail}</TableCell>
+                    <TableCell className="text-sm max-w-xs truncate">{r.reason}</TableCell>
+                    <TableCell>
+                      <Badge className={r.status === "approved" ? "bg-green-100 text-green-700" : r.status === "rejected" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}>{r.status}</Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-gray-400">{new Date(r.createdAt).toLocaleDateString()}</TableCell>
+                    <TableCell className="pr-6">
+                      {r.status === "pending" && (
+                        <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => { setSelectedReturn(r); setAdminNote(r.adminNote || ""); }}>Review</Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+
+      <Dialog open={!!selectedReturn} onOpenChange={(o) => !o && setSelectedReturn(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Review Return Request #{selectedReturn?.id}</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-gray-50 rounded p-3 text-sm"><p><strong>Order:</strong> #{selectedReturn?.orderId}</p><p><strong>Customer:</strong> {selectedReturn?.orderEmail}</p><p className="mt-2"><strong>Reason:</strong> {selectedReturn?.reason}</p></div>
+            <div><label className="text-sm font-medium">Admin note (optional)</label><Textarea className="mt-1" value={adminNote} onChange={(e) => setAdminNote(e.target.value)} placeholder="Internal note for the customer…" rows={3} /></div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setSelectedReturn(null)}>Cancel</Button>
+              <Button variant="destructive" onClick={() => updateMutation.mutate({ id: selectedReturn.id, status: "rejected", note: adminNote })}>Reject</Button>
+              <Button className="bg-green-600 hover:bg-green-700" onClick={() => updateMutation.mutate({ id: selectedReturn.id, status: "approved", note: adminNote })}>Approve</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
+// ── Coupons section ───────────────────────────────────────────────────────────
+function CouponsSection({ coupons: couponsList, refetch }: { coupons: any[]; refetch: () => void }) {
+  const { toast } = useToast();
+  const [showForm, setShowForm] = useState(false);
+  const [code, setCode] = useState("");
+  const [type, setType] = useState<"percent" | "fixed">("percent");
+  const [value, setValue] = useState("");
+  const [minOrder, setMinOrder] = useState("");
+  const [maxUses, setMaxUses] = useState("");
+  const [expiresAt, setExpiresAt] = useState("");
+
+  const createMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/coupons", { code, type, value, minOrder, maxUses: maxUses || null, expiresAt: expiresAt || null }),
+    onSuccess: () => { toast({ title: "Coupon created" }); refetch(); setShowForm(false); setCode(""); setValue(""); setMinOrder(""); setMaxUses(""); setExpiresAt(""); },
+    onError: (e: any) => toast({ title: e.message || "Failed", variant: "destructive" }),
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("PATCH", `/api/admin/coupons/${id}/toggle`, {}),
+    onSuccess: () => refetch(),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/admin/coupons/${id}`),
+    onSuccess: () => { toast({ title: "Deleted" }); refetch(); },
+  });
+
+  return (
+    <div className="space-y-4">
+      <Card className="border-0 shadow-sm">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2"><Tag className="h-5 w-5" />Coupon Codes</CardTitle>
+          <Button size="sm" className="gap-1" onClick={() => setShowForm(!showForm)}><Plus className="h-4 w-4" />New Coupon</Button>
+        </CardHeader>
+        {showForm && (
+          <div className="px-6 pb-4 border-b">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <div><label className="text-xs font-medium">Code</label><Input className="mt-1 uppercase" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="SAVE20" /></div>
+              <div><label className="text-xs font-medium">Type</label>
+                <select className="mt-1 w-full border border-gray-200 rounded px-2 py-2 text-sm" value={type} onChange={(e) => setType(e.target.value as any)}>
+                  <option value="percent">Percentage (%)</option><option value="fixed">Fixed (USD)</option>
+                </select>
+              </div>
+              <div><label className="text-xs font-medium">Value {type === "percent" ? "(%)" : "(USD)"}</label><Input type="number" className="mt-1" value={value} onChange={(e) => setValue(e.target.value)} placeholder="20" /></div>
+              <div><label className="text-xs font-medium">Min order (USD)</label><Input type="number" className="mt-1" value={minOrder} onChange={(e) => setMinOrder(e.target.value)} placeholder="0" /></div>
+              <div><label className="text-xs font-medium">Max uses</label><Input type="number" className="mt-1" value={maxUses} onChange={(e) => setMaxUses(e.target.value)} placeholder="Unlimited" /></div>
+              <div><label className="text-xs font-medium">Expires at</label><Input type="date" className="mt-1" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} /></div>
+            </div>
+            <div className="flex gap-2 mt-3 justify-end">
+              <Button variant="outline" size="sm" onClick={() => setShowForm(false)}>Cancel</Button>
+              <Button size="sm" disabled={!code || !value || createMutation.isPending} onClick={() => createMutation.mutate()}>Create Coupon</Button>
+            </div>
+          </div>
+        )}
+        <CardContent className="p-0">
+          {couponsList.length === 0 ? <div className="text-center text-gray-400 py-12 text-sm">No coupons yet</div> : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader><TableRow><TableHead className="pl-6">Code</TableHead><TableHead>Discount</TableHead><TableHead>Used</TableHead><TableHead>Min Order</TableHead><TableHead>Expires</TableHead><TableHead>Status</TableHead><TableHead className="pr-6">Actions</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {couponsList.map((c: any) => (
+                    <TableRow key={c.id}>
+                      <TableCell className="pl-6 font-mono font-bold text-sm">{c.code}</TableCell>
+                      <TableCell className="text-sm">{c.type === "percent" ? `${c.value}%` : `$${c.value}`}</TableCell>
+                      <TableCell className="text-sm">{c.usedCount ?? 0}{c.maxUses ? ` / ${c.maxUses}` : ""}</TableCell>
+                      <TableCell className="text-sm">{parseFloat(c.minOrder ?? "0") > 0 ? `P ${(parseFloat(c.minOrder) * 13.5).toFixed(2)}` : "—"}</TableCell>
+                      <TableCell className="text-xs text-gray-500">{c.expiresAt ? new Date(c.expiresAt).toLocaleDateString() : "Never"}</TableCell>
+                      <TableCell><Badge className={c.active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}>{c.active ? "Active" : "Disabled"}</Badge></TableCell>
+                      <TableCell className="pr-6">
+                        <div className="flex gap-1">
+                          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => toggleMutation.mutate(c.id)}>{c.active ? "Disable" : "Enable"}</Button>
+                          <Button size="sm" variant="ghost" className="h-7 text-xs text-red-500 hover:text-red-600" onClick={() => { if (confirm("Delete?")) deleteMutation.mutate(c.id); }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
@@ -209,6 +359,24 @@ export default function Admin() {
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
+    retry: false,
+  });
+
+  const { data: analytics } = useQuery({
+    queryKey: ["/api/admin/analytics"],
+    queryFn: async () => { const r = await fetch(`${BASE_URL}/api/admin/analytics`, { credentials: "include" }); if (!r.ok) throw new Error("Failed"); return r.json(); },
+    retry: false,
+  });
+
+  const { data: returnsList = [], refetch: refetchReturns } = useQuery({
+    queryKey: ["/api/admin/returns"],
+    queryFn: async () => { const r = await fetch(`${BASE_URL}/api/admin/returns`, { credentials: "include" }); if (!r.ok) throw new Error("Failed"); return r.json(); },
+    retry: false,
+  });
+
+  const { data: couponsList = [], refetch: refetchCoupons } = useQuery({
+    queryKey: ["/api/admin/coupons"],
+    queryFn: async () => { const r = await fetch(`${BASE_URL}/api/admin/coupons`, { credentials: "include" }); if (!r.ok) throw new Error("Failed"); return r.json(); },
     retry: false,
   });
 
@@ -411,6 +579,8 @@ export default function Admin() {
         <NavItem icon={Store} label="Sellers" active={section === "sellers"} badge={pendingSellers || undefined} onClick={() => go("sellers")} />
         <NavItem icon={Tractor} label="Farm Market" active={section === "farm"} onClick={() => go("farm")} />
         <NavItem icon={Store} label="Kgotla Market" active={section === "kgotla"} onClick={() => go("kgotla")} />
+        <NavItem icon={RotateCcw} label="Returns" active={section === "returns"} onClick={() => go("returns")} />
+        <NavItem icon={DollarSign} label="Coupons" active={section === "coupons"} onClick={() => go("coupons")} />
       </nav>
 
       {/* Bottom */}
@@ -444,43 +614,46 @@ export default function Admin() {
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Revenue bar chart */}
+        {/* Revenue bar chart — real data from /api/admin/analytics */}
         <Card className="col-span-1 lg:col-span-2 border-0 shadow-sm">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold text-gray-700">Revenue — Last 6 Months</CardTitle>
+            <CardTitle className="text-sm font-semibold text-gray-700">Revenue — Last 30 Days (BWP)</CardTitle>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={revenueByMonth} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
+              <BarChart data={(analytics as any)?.daily?.map((d: any) => ({ day: d.day?.slice(5), revenue: parseFloat((d.revenue * 13.5).toFixed(2)) })) ?? revenueByMonth} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
-                <ChartTooltip formatter={(v: number) => [`$${v.toFixed(2)}`, "Revenue"]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                <XAxis dataKey="day" tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} tickFormatter={(v) => `P${v}`} />
+                <ChartTooltip formatter={(v: number) => [`P ${v.toFixed(2)}`, "Revenue"]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
                 <Bar dataKey="revenue" fill="#10b981" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
 
-        {/* Order status pie */}
+        {/* Order status pie — real data */}
         <Card className="border-0 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold text-gray-700">Orders by Status</CardTitle>
           </CardHeader>
           <CardContent>
-            {ordersByStatus.length > 0 ? (
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie data={ordersByStatus} cx="50%" cy="45%" innerRadius={55} outerRadius={80} paddingAngle={3} dataKey="value">
-                    {ordersByStatus.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                  </Pie>
-                  <ChartTooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                  <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-[220px] text-gray-400 text-sm">No orders yet</div>
-            )}
+            {(() => {
+              const statusData = (analytics as any)?.statusBreakdown?.map((s: any) => ({ name: STATUS_LABEL[s.status] || s.status, value: s.count })) ?? ordersByStatus;
+              return statusData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={220}>
+                  <PieChart>
+                    <Pie data={statusData} cx="50%" cy="45%" innerRadius={55} outerRadius={80} paddingAngle={3} dataKey="value">
+                      {statusData.map((_: any, i: number) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                    </Pie>
+                    <ChartTooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                    <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-[220px] text-gray-400 text-sm">No orders yet</div>
+              );
+            })()}
           </CardContent>
         </Card>
       </div>
@@ -552,6 +725,26 @@ export default function Admin() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Top products */}
+      {(analytics as any)?.topProducts?.length > 0 && (
+        <Card className="border-0 shadow-sm">
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold text-gray-700">Top Products by Units Sold</CardTitle></CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {(analytics as any).topProducts.map((p: any, i: number) => (
+                <div key={i} className="flex items-center gap-3">
+                  <span className="text-xs text-gray-400 w-4">{i + 1}</span>
+                  <div className="flex-1">
+                    <div className="flex justify-between text-sm mb-0.5"><span className="font-medium truncate">{p.name}</span><span className="text-gray-500 shrink-0 ml-2">{p.sold} sold</span></div>
+                    <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden"><div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, (p.sold / ((analytics as any).topProducts[0]?.sold || 1)) * 100)}%` }} /></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 
@@ -668,6 +861,43 @@ export default function Admin() {
   );
 
   const productsSection = (
+    <div className="space-y-4">
+    {/* CSV Import */}
+    <Card className="border-0 shadow-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-2"><Upload className="h-4 w-4" />Bulk Import via CSV</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-xs text-gray-500 mb-3">Upload a CSV file with columns: <code className="bg-gray-100 px-1 rounded text-xs">name, description, price_bwp, original_price_bwp, stock, featured, active, image_url, sizes (pipe-separated), colors (pipe-separated)</code></p>
+        <div className="flex gap-3 items-center">
+          <label className="cursor-pointer flex items-center gap-2 bg-white border border-gray-200 rounded px-4 py-2 text-sm hover:bg-gray-50">
+            <FileText className="h-4 w-4 text-gray-500" />Choose CSV file
+            <input type="file" accept=".csv" className="hidden" onChange={async (e) => {
+              const file = e.target.files?.[0]; if (!file) return;
+              const text = await file.text();
+              const lines = text.trim().split("\n");
+              const headers = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/"/g, ""));
+              const rows = lines.slice(1).map(line => {
+                const vals = line.split(",").map(v => v.trim().replace(/"/g, ""));
+                const row: Record<string, string> = {};
+                headers.forEach((h, i) => { row[h] = vals[i] ?? ""; });
+                return row;
+              }).filter(r => r.name);
+              if (rows.length === 0) { alert("No valid rows found"); return; }
+              try {
+                const r = await fetch(`${BASE_URL}/api/admin/products/import-csv`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ rows }) });
+                const data = await r.json();
+                alert(`Imported ${data.created} products. ${data.errors?.length ? `${data.errors.length} errors.` : ""}`);
+                queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+              } catch { alert("Import failed"); }
+              e.target.value = "";
+            }} />
+          </label>
+          <a href="data:text/csv;charset=utf-8,name,description,price_bwp,original_price_bwp,stock,featured,active,image_url,sizes,colors%0AExample Product,A great product,150.00,200.00,10,false,true,,S|M|L,Red|Blue" download="product-template.csv" className="text-xs text-blue-600 underline">Download template</a>
+        </div>
+      </CardContent>
+    </Card>
+
     <Card className="border-0 shadow-sm">
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-base">Products ({products.length})</CardTitle>
@@ -726,6 +956,7 @@ export default function Admin() {
         </div>
       </CardContent>
     </Card>
+    </div>
   );
 
   // ── Orders section ────────────────────────────────────────────────────────────
@@ -1091,6 +1322,7 @@ export default function Admin() {
   const SECTION_TITLES: Record<Section, string> = {
     overview: "Overview", products: "Products", orders: "Orders",
     messages: "Messages", sellers: "Sellers", farm: "Farm Market", kgotla: "Kgotla Market",
+    returns: "Return Requests", coupons: "Coupon Codes",
   };
 
   // ── Full layout ───────────────────────────────────────────────────────────────
@@ -1137,6 +1369,8 @@ export default function Admin() {
           {section === "sellers" && sellersSection}
           {section === "farm" && farmSection}
           {section === "kgotla" && kgotlaSection}
+          {section === "returns" && <ReturnsSection returns={returnsList as any[]} refetch={refetchReturns} />}
+          {section === "coupons" && <CouponsSection coupons={couponsList as any[]} refetch={refetchCoupons} />}
         </main>
       </div>
     </div>

@@ -50,6 +50,9 @@ export default function Checkout() {
   const [paypalError, setPaypalError] = useState<string | null>(null);
   const [paypalOrderId, setPaypalOrderId] = useState<string | null>(null);
   const [fulfillmentType, setFulfillmentType] = useState<"pickup" | "delivery">("pickup");
+  const [couponInput, setCouponInput] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discount: number } | null>(null);
+  const [couponError, setCouponError] = useState("");
   const { items, itemCount, clearCart } = useCart();
   const { toast } = useToast();
   const stripe = useStripe();
@@ -107,8 +110,11 @@ export default function Checkout() {
   // Tax 8% in USD
   const tax = subtotal * 0.08;
 
+  // Coupon discount (in USD)
+  const couponDiscount = appliedCoupon?.discount ?? 0;
+
   // Total price in USD (full product value — always stored in order record)
-  const total = subtotal + shipping + tax;
+  const total = Math.max(0, subtotal + shipping + tax - couponDiscount);
 
   // Deposit logic: if any cart item is a farm product with depositPercent > 0,
   // the customer only pays the deposit now; the rest is due on collection.
@@ -154,7 +160,9 @@ export default function Checkout() {
           subtotal: subtotal.toFixed(2),
           shipping: shipping.toFixed(2),
           tax: tax.toFixed(2),
-          total: total.toFixed(2), // full product value for record keeping
+          total: total.toFixed(2),
+          couponCode: appliedCoupon?.code ?? undefined,
+          discountAmount: couponDiscount > 0 ? couponDiscount.toFixed(2) : undefined,
 
           status: orderData.paymentMethod === "cash" ? "pending" : "paid",
         },
@@ -781,6 +789,32 @@ export default function Checkout() {
                   </div>
                 )}
 
+                {/* Coupon code */}
+                <div className="mb-3">
+                  {appliedCoupon ? (
+                    <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded px-3 py-2 text-sm">
+                      <span className="text-green-700 font-medium">"{appliedCoupon.code}" applied</span>
+                      <button className="text-green-600 hover:text-red-500 text-xs" onClick={() => setAppliedCoupon(null)}>Remove</button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input className="flex-1 border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary" placeholder="Coupon code" value={couponInput} onChange={(e) => { setCouponInput(e.target.value.toUpperCase()); setCouponError(""); }} />
+                      <button className="shrink-0 bg-primary text-white text-sm px-3 py-1.5 rounded hover:bg-gray-800 disabled:opacity-50" disabled={!couponInput}
+                        onClick={async () => {
+                          setCouponError("");
+                          try {
+                            const r = await fetch(`${import.meta.env.VITE_API_BASE_URL || "https://myshop-test-backend.onrender.com"}/api/coupons/apply`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ code: couponInput, orderTotal: (subtotal + shipping + tax).toFixed(2) }) });
+                            const data = await r.json();
+                            if (!r.ok) { setCouponError(data.message || "Invalid coupon"); return; }
+                            setAppliedCoupon({ code: data.coupon.code, discount: data.discount });
+                            setCouponInput("");
+                          } catch { setCouponError("Failed to apply coupon"); }
+                        }}>Apply</button>
+                    </div>
+                  )}
+                  {couponError && <p className="text-xs text-red-500 mt-1">{couponError}</p>}
+                </div>
+
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span>Subtotal ({itemCount} items):</span>
@@ -794,6 +828,12 @@ export default function Checkout() {
                     <span>VAT (14%):</span>
                     <span>{formatBWP(convertToBWP(tax.toFixed(2)))}</span>
                   </div>
+                  {couponDiscount > 0 && (
+                    <div className="flex justify-between text-green-600 font-medium">
+                      <span>Discount ({appliedCoupon?.code}):</span>
+                      <span>-{formatBWP(convertToBWP(couponDiscount.toFixed(2)))}</span>
+                    </div>
+                  )}
                   <Separator className="my-2" />
                   {isFarmOrder ? (
                     <>

@@ -3,9 +3,9 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { isAuthenticated } from "./googleAuth";
-import { eq, sql, and, count, avg } from "drizzle-orm";
+import { eq, sql, and, count, avg, desc, gte, lt } from "drizzle-orm";
 import { db } from "./db";
-import { contactMessages, products, orders, productLikes, wishlistItems, productReviews, orderItems } from "./schema";
+import { contactMessages, products, orders, productLikes, wishlistItems, productReviews, orderItems, users, stockNotifications, returnRequests, coupons } from "./schema";
 import { createStripePaymentIntent, initiateOrangeMoneyPayment } from "./payment";
 import { createPayPalOrder, capturePayPalOrder } from "./paypal-service";
 import { sendEmail, otpEmailTemplate, orderConfirmationTemplate, orderStatusUpdateTemplate } from "./email";
@@ -868,8 +868,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Admin access required", code: "FORBIDDEN" });
       }
       const id = parseInt(req.params.id);
+      const oldProduct = await storage.getProduct(id);
       const validatedData = insertProductSchema.partial().parse(req.body);
       const product = await storage.updateProduct(id, validatedData);
+
+      // If stock just became available, notify subscribers
+      if (oldProduct && (oldProduct.stock ?? 0) === 0 && (product?.stock ?? 0) > 0) {
+        const subs = await db.select().from(stockNotifications).where(and(eq(stockNotifications.productId, id), eq(stockNotifications.notified, false)));
+        for (const sub of subs) {
+          sendEmail(sub.email, `${product!.name} is back in stock!`,
+            `<p>Good news! <strong>${product!.name}</strong> is now back in stock on Fountstream.</p><p><a href="${process.env.FRONTEND_URL ?? ""}/product/${id}">Shop now</a></p>`
+          ).catch(() => {});
+          db.update(stockNotifications).set({ notified: true }).where(eq(stockNotifications.id, sub.id)).catch(() => {});
+        }
+      }
+
       res.json(product);
     } catch (error) {
       console.error("Error updating product:", error);
@@ -1015,6 +1028,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Coupon validation + discount
+      let couponCode: string | undefined;
+      let discountAmount = 0;
+      if (orderData.couponCode) {
+        const [coupon] = await db.select().from(coupons).where(and(eq(coupons.code, orderData.couponCode.toUpperCase()), eq(coupons.active, true)));
+        if (coupon && !(coupon.expiresAt && new Date(coupon.expiresAt) < new Date()) && !(coupon.maxUses !== null && (coupon.usedCount ?? 0) >= coupon.maxUses)) {
+          couponCode = coupon.code;
+          discountAmount = coupon.type === "percent" ? total * parseFloat(coupon.value) / 100 : parseFloat(coupon.value);
+          discountAmount = Math.min(discountAmount, total);
+          // Increment used count (non-blocking)
+          db.update(coupons).set({ usedCount: (coupon.usedCount ?? 0) + 1 }).where(eq(coupons.id, coupon.id)).catch(() => {});
+        }
+      }
+
       const orderWithUser = {
         ...orderData,
         userId,
@@ -1022,6 +1049,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         depositAmount: depositAmount !== undefined ? depositAmount.toFixed(2) : null,
         remainingBalance: remainingBalance !== undefined ? remainingBalance.toFixed(2) : null,
         status: orderStatus,
+        couponCode: couponCode ?? null,
+        discountAmount: discountAmount > 0 ? discountAmount.toFixed(2) : "0",
       };
 
       const validatedOrder = insertOrderSchema.parse(orderWithUser);
@@ -1459,6 +1488,280 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching admin stats:", error);
       res.status(500).json({ message: "Failed to fetch stats", code: "FETCH_STATS_ERROR" });
+    }
+  });
+
+  // ── Stock Notifications ────────────────────────────────────────────────────
+
+  app.post("/api/products/:id/notify-stock", async (req: Request, res: Response) => {
+    try {
+      const productId = parseInt(req.params.id);
+      const { email } = req.body;
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ message: "Valid email required" });
+      }
+      await db.insert(stockNotifications).values({ email, productId }).onConflictDoNothing();
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[StockNotify] Subscribe failed:", err);
+      res.status(500).json({ message: "Failed to subscribe" });
+    }
+  });
+
+  // ── Return / Refund Requests ───────────────────────────────────────────────
+
+  app.post("/api/orders/:id/return", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const orderId = parseInt(req.params.id);
+      const userId  = (req.user as any).id;
+      const { reason } = req.body;
+      if (!reason?.trim()) return res.status(400).json({ message: "Reason is required" });
+
+      const [order] = await db.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.userId, userId)));
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      if (order.status !== "delivered") return res.status(400).json({ message: "Only delivered orders can be returned" });
+
+      const [existing] = await db.select().from(returnRequests).where(and(eq(returnRequests.orderId, orderId), eq(returnRequests.userId, userId)));
+      if (existing) return res.status(409).json({ message: "Return request already submitted" });
+
+      const [created] = await db.insert(returnRequests).values({ orderId, userId, reason: reason.trim() }).returning();
+      res.status(201).json(created);
+    } catch (err) {
+      console.error("[Returns] Submit failed:", err);
+      res.status(500).json({ message: "Failed to submit return request" });
+    }
+  });
+
+  app.get("/api/orders/:id/return", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const orderId = parseInt(req.params.id);
+      const userId  = (req.user as any).id;
+      const [req_] = await db.select().from(returnRequests).where(and(eq(returnRequests.orderId, orderId), eq(returnRequests.userId, userId)));
+      res.json(req_ ?? null);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch return" });
+    }
+  });
+
+  app.get("/api/admin/returns", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      if (!user?.isAdmin) return res.status(403).json({ message: "Forbidden" });
+      const rows = await db
+        .select({ return: returnRequests, orderEmail: orders.email, orderTotal: orders.total, orderDate: orders.createdAt })
+        .from(returnRequests)
+        .innerJoin(orders, eq(returnRequests.orderId, orders.id))
+        .orderBy(desc(returnRequests.createdAt));
+      res.json(rows.map((r) => ({ ...r.return, orderEmail: r.orderEmail, orderTotal: r.orderTotal, orderDate: r.orderDate })));
+    } catch (err) {
+      console.error("[Returns] Admin fetch failed:", err);
+      res.status(500).json({ message: "Failed to fetch returns" });
+    }
+  });
+
+  app.patch("/api/admin/returns/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      if (!user?.isAdmin) return res.status(403).json({ message: "Forbidden" });
+      const { status, adminNote } = req.body;
+      const [updated] = await db.update(returnRequests)
+        .set({ status, adminNote: adminNote || null })
+        .where(eq(returnRequests.id, parseInt(req.params.id)))
+        .returning();
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to update return" });
+    }
+  });
+
+  // ── Coupons ────────────────────────────────────────────────────────────────
+
+  app.post("/api/coupons/apply", async (req: Request, res: Response) => {
+    try {
+      const { code, orderTotal } = req.body;
+      if (!code) return res.status(400).json({ message: "Coupon code required" });
+
+      const [coupon] = await db.select().from(coupons).where(and(eq(coupons.code, code.toUpperCase()), eq(coupons.active, true)));
+      if (!coupon) return res.status(404).json({ message: "Invalid or expired coupon code" });
+      if (coupon.expiresAt && new Date(coupon.expiresAt) < new Date()) return res.status(400).json({ message: "Coupon has expired" });
+      if (coupon.maxUses !== null && (coupon.usedCount ?? 0) >= coupon.maxUses) return res.status(400).json({ message: "Coupon usage limit reached" });
+      if (parseFloat(coupon.minOrder ?? "0") > parseFloat(orderTotal ?? "0")) {
+        return res.status(400).json({ message: `Minimum order of P ${(parseFloat(coupon.minOrder ?? "0") * 13.5).toFixed(2)} required` });
+      }
+
+      const discount = coupon.type === "percent"
+        ? parseFloat(orderTotal) * parseFloat(coupon.value) / 100
+        : parseFloat(coupon.value);
+
+      res.json({ coupon: { id: coupon.id, code: coupon.code, type: coupon.type, value: coupon.value }, discount: Math.min(discount, parseFloat(orderTotal)) });
+    } catch (err) {
+      console.error("[Coupons] Apply failed:", err);
+      res.status(500).json({ message: "Failed to apply coupon" });
+    }
+  });
+
+  app.get("/api/admin/coupons", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      if (!user?.isAdmin) return res.status(403).json({ message: "Forbidden" });
+      const rows = await db.select().from(coupons).orderBy(desc(coupons.createdAt));
+      res.json(rows);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch coupons" });
+    }
+  });
+
+  app.post("/api/admin/coupons", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      if (!user?.isAdmin) return res.status(403).json({ message: "Forbidden" });
+      const { code, type, value, minOrder, maxUses, expiresAt } = req.body;
+      if (!code || !type || !value) return res.status(400).json({ message: "code, type, value required" });
+      const [created] = await db.insert(coupons).values({
+        code: code.toUpperCase().trim(),
+        type,
+        value: parseFloat(value).toFixed(2),
+        minOrder: minOrder ? parseFloat(minOrder).toFixed(2) : "0",
+        maxUses: maxUses ? parseInt(maxUses) : null,
+        expiresAt: expiresAt ? new Date(expiresAt) : null,
+      }).returning();
+      res.status(201).json(created);
+    } catch (err: any) {
+      if (err.code === "23505") return res.status(409).json({ message: "Coupon code already exists" });
+      res.status(500).json({ message: "Failed to create coupon" });
+    }
+  });
+
+  app.delete("/api/admin/coupons/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      if (!user?.isAdmin) return res.status(403).json({ message: "Forbidden" });
+      await db.delete(coupons).where(eq(coupons.id, parseInt(req.params.id)));
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to delete coupon" });
+    }
+  });
+
+  app.patch("/api/admin/coupons/:id/toggle", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      if (!user?.isAdmin) return res.status(403).json({ message: "Forbidden" });
+      const [coupon] = await db.select().from(coupons).where(eq(coupons.id, parseInt(req.params.id)));
+      if (!coupon) return res.status(404).json({ message: "Not found" });
+      const [updated] = await db.update(coupons).set({ active: !coupon.active }).where(eq(coupons.id, coupon.id)).returning();
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to toggle coupon" });
+    }
+  });
+
+  // ── Admin Analytics (real data) ────────────────────────────────────────────
+
+  app.get("/api/admin/analytics", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      if (!user?.isAdmin) return res.status(403).json({ message: "Forbidden" });
+
+      // Revenue + order count by day for the last 30 days
+      const dailyRows = await db.execute(sql`
+        SELECT
+          DATE(created_at) AS day,
+          COUNT(*)::int AS orders,
+          SUM(total)::float AS revenue
+        FROM orders
+        WHERE created_at >= NOW() - INTERVAL '30 days'
+        GROUP BY day
+        ORDER BY day ASC
+      `);
+
+      // Top 5 products by order quantity
+      const topProducts = await db.execute(sql`
+        SELECT p.name, SUM(oi.quantity)::int AS sold
+        FROM order_items oi
+        JOIN products p ON p.id = oi.product_id
+        GROUP BY p.id, p.name
+        ORDER BY sold DESC
+        LIMIT 5
+      `);
+
+      // Order status breakdown
+      const statusBreakdown = await db.execute(sql`
+        SELECT status, COUNT(*)::int AS count
+        FROM orders
+        GROUP BY status
+        ORDER BY count DESC
+      `);
+
+      // Revenue by category
+      const categoryRevenue = await db.execute(sql`
+        SELECT c.name, SUM(oi.product_price * oi.quantity)::float AS revenue
+        FROM order_items oi
+        JOIN products p ON p.id = oi.product_id
+        JOIN categories c ON c.id = p.category_id
+        GROUP BY c.name
+        ORDER BY revenue DESC
+        LIMIT 6
+      `);
+
+      res.json({
+        daily: dailyRows.rows,
+        topProducts: topProducts.rows,
+        statusBreakdown: statusBreakdown.rows,
+        categoryRevenue: categoryRevenue.rows,
+      });
+    } catch (err) {
+      console.error("[Analytics] Failed:", err);
+      res.status(500).json({ message: "Failed to fetch analytics" });
+    }
+  });
+
+  // ── Bulk Product CSV Import ────────────────────────────────────────────────
+
+  app.post("/api/admin/products/import-csv", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      if (!user?.isAdmin) return res.status(403).json({ message: "Forbidden" });
+
+      const { rows } = req.body as { rows: any[] };
+      if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ message: "No rows provided" });
+      if (rows.length > 200) return res.status(400).json({ message: "Maximum 200 rows per import" });
+
+      const created: any[] = [];
+      const errors: { row: number; message: string }[] = [];
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        try {
+          const name = String(row.name || "").trim();
+          if (!name) { errors.push({ row: i + 1, message: "name is required" }); continue; }
+          const priceUSD = parseFloat(String(row.price_bwp || row.price || "0")) / 13.5;
+          if (isNaN(priceUSD) || priceUSD <= 0) { errors.push({ row: i + 1, message: "invalid price" }); continue; }
+          const slug = `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}-${Date.now().toString(36)}-${i}`;
+          const product = await storage.createProduct({
+            name,
+            slug,
+            description: String(row.description || ""),
+            price: priceUSD.toFixed(2),
+            originalPrice: row.original_price_bwp ? (parseFloat(row.original_price_bwp) / 13.5).toFixed(2) : undefined,
+            stock: parseInt(row.stock || "0") || 0,
+            featured: String(row.featured).toLowerCase() === "true",
+            active: String(row.active ?? "true").toLowerCase() !== "false",
+            images: row.image_url ? [row.image_url] : [],
+            sizes: row.sizes ? String(row.sizes).split("|").map((s: string) => s.trim()).filter(Boolean) : [],
+            colors: row.colors ? String(row.colors).split("|").map((s: string) => s.trim()).filter(Boolean) : [],
+            status: "active",
+          });
+          created.push(product);
+        } catch (rowErr: any) {
+          errors.push({ row: i + 1, message: rowErr.message || "Unknown error" });
+        }
+      }
+
+      res.json({ created: created.length, errors });
+    } catch (err) {
+      console.error("[CSV Import] Failed:", err);
+      res.status(500).json({ message: "Import failed" });
     }
   });
 
