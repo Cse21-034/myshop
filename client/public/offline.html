@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Offline — Fountstream</title>
+  <style>
+    body { font-family: sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f9fafb; }
+    .card { text-align: center; padding: 2rem; max-width: 360px; }
+    h1 { color: #1a4731; font-size: 1.5rem; margin-bottom: 0.5rem; }
+    p { color: #6b7280; line-height: 1.6; }
+    button { margin-top: 1.5rem; background: #1a4731; color: #fff; border: none; padding: 0.75rem 2rem; border-radius: 8px; font-size: 1rem; cursor: pointer; }
+    button:hover { background: #15573a; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="font-size:3rem;margin-bottom:1rem">📶</div>
+    <h1>You're offline</h1>
+    <p>Please check your internet connection and try again. Fountstream needs a connection to load products.</p>
+    <button onclick="location.reload()">Try Again</button>
+  </div>
+</body>
+</html>

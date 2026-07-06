@@ -183,6 +183,47 @@ export const productReviews = pgTable(
   (t) => [uniqueIndex("uq_product_reviews_user_product").on(t.userId, t.productId)],
 );
 
+// In-app notifications
+export const notifications = pgTable("notifications", {
+  id:        serial("id").primaryKey(),
+  userId:    varchar("user_id").references(() => users.id).notNull(),
+  type:      varchar("type").notNull(),   // order_update | return_update | stock_back | question_answered
+  title:     varchar("title", { length: 200 }).notNull(),
+  body:      text("body"),
+  link:      varchar("link"),
+  read:      boolean("read").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Product Q&A
+export const productQuestions = pgTable("product_questions", {
+  id:          serial("id").primaryKey(),
+  productId:   integer("product_id").references(() => products.id).notNull(),
+  userId:      varchar("user_id").references(() => users.id).notNull(),
+  question:    text("question").notNull(),
+  answer:      text("answer"),
+  answeredBy:  varchar("answered_by").references(() => users.id),
+  answeredAt:  timestamp("answered_at"),
+  createdAt:   timestamp("created_at").defaultNow(),
+});
+
+// Payout requests (seller → admin)
+export const payoutRequests = pgTable("payout_requests", {
+  id:        serial("id").primaryKey(),
+  sellerId:  integer("seller_id").references(() => sellers.id).notNull(),
+  amount:    decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  status:    varchar("status").default("pending"), // pending | approved | paid | rejected
+  note:      text("note"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Abandoned cart notifications (track who we've already emailed)
+export const abandonedCartLogs = pgTable("abandoned_cart_logs", {
+  id:        serial("id").primaryKey(),
+  userId:    varchar("user_id").references(() => users.id).notNull().unique(),
+  sentAt:    timestamp("sent_at").defaultNow(),
+});
+
 // Stock notifications — subscribe to back-in-stock alerts
 export const stockNotifications = pgTable(
   "stock_notifications",
@@ -319,6 +360,15 @@ export type ContactMessage = typeof contactMessages.$inferSelect;
 
 export type InsertSeller = typeof sellers.$inferInsert;
 export type Seller = typeof sellers.$inferSelect;
+
+export type InsertNotification = typeof notifications.$inferInsert;
+export type Notification = typeof notifications.$inferSelect;
+
+export type InsertProductQuestion = typeof productQuestions.$inferInsert;
+export type ProductQuestion = typeof productQuestions.$inferSelect;
+
+export type InsertPayoutRequest = typeof payoutRequests.$inferInsert;
+export type PayoutRequest = typeof payoutRequests.$inferSelect;
 
 export type InsertStockNotification = typeof stockNotifications.$inferInsert;
 export type StockNotification = typeof stockNotifications.$inferSelect;

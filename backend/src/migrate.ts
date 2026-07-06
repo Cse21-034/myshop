@@ -83,6 +83,48 @@ async function migrate() {
       UNIQUE(user_id, product_id)
     )`,
 
+    // In-app notifications
+    `CREATE TABLE IF NOT EXISTS notifications (
+      id serial PRIMARY KEY,
+      user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      type varchar NOT NULL,
+      title varchar(200) NOT NULL,
+      body text,
+      link varchar,
+      read boolean DEFAULT false,
+      created_at timestamp DEFAULT now()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id)`,
+
+    // Product Q&A
+    `CREATE TABLE IF NOT EXISTS product_questions (
+      id serial PRIMARY KEY,
+      product_id integer NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      user_id varchar NOT NULL REFERENCES users(id),
+      question text NOT NULL,
+      answer text,
+      answered_by varchar REFERENCES users(id),
+      answered_at timestamp,
+      created_at timestamp DEFAULT now()
+    )`,
+
+    // Payout requests
+    `CREATE TABLE IF NOT EXISTS payout_requests (
+      id serial PRIMARY KEY,
+      seller_id integer NOT NULL REFERENCES sellers(id),
+      amount decimal(10,2) NOT NULL,
+      status varchar DEFAULT 'pending',
+      note text,
+      created_at timestamp DEFAULT now()
+    )`,
+
+    // Abandoned cart email log
+    `CREATE TABLE IF NOT EXISTS abandoned_cart_logs (
+      id serial PRIMARY KEY,
+      user_id varchar NOT NULL UNIQUE REFERENCES users(id),
+      sent_at timestamp DEFAULT now()
+    )`,
+
     // Stock notifications
     `CREATE TABLE IF NOT EXISTS stock_notifications (
       id serial PRIMARY KEY,

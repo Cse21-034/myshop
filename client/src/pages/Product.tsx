@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Star, Check, ArrowLeft, Heart, Bookmark, ShieldCheck, Bell } from "lucide-react";
+import { Star, Check, ArrowLeft, Heart, Bookmark, ShieldCheck, Bell, Share2, MessageCircle } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -83,6 +83,9 @@ export default function ProductPage() {
   const [notifyEmail, setNotifyEmail] = useState("");
   const [notifyDone, setNotifyDone] = useState(false);
 
+  // Q&A state
+  const [newQuestion, setNewQuestion] = useState("");
+
   // Review form state
   const [reviewRating, setReviewRating] = useState(0);
   const [reviewTitle, setReviewTitle] = useState("");
@@ -109,6 +112,12 @@ export default function ProductPage() {
   const { data: reviews = [] } = useQuery<any[]>({
     queryKey: ["product-reviews", id],
     queryFn: () => fetch(`${backendURL}/api/products/${id}/reviews`).then((r) => r.json()),
+    enabled: !!id,
+  });
+
+  const { data: questions = [], refetch: refetchQuestions } = useQuery<any[]>({
+    queryKey: ["product-questions", id],
+    queryFn: () => fetch(`${backendURL}/api/products/${id}/questions`).then(r => r.json()),
     enabled: !!id,
   });
 
@@ -165,6 +174,12 @@ export default function ProductPage() {
       toast({ title: saved ? "Added to wishlist" : "Removed from wishlist" });
     },
     onError: () => toast({ title: "Please log in to save to wishlist", variant: "destructive" }),
+  });
+
+  const questionMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/products/${id}/questions`, { question: newQuestion }),
+    onSuccess: () => { setNewQuestion(""); refetchQuestions(); toast({ title: "Question submitted!" }); },
+    onError: () => toast({ title: "Please log in to ask questions", variant: "destructive" }),
   });
 
   const notifyMutation = useMutation({
@@ -283,7 +298,7 @@ export default function ProductPage() {
                 <h1 className="text-xl sm:text-3xl font-bold text-primary mb-2 leading-tight">{product.name}</h1>
                 {product.featured && <Badge className="bg-secondary mb-2 text-xs px-2 py-1">Featured</Badge>}
               </div>
-              {/* Like + Wishlist buttons */}
+              {/* Like + Wishlist + Share buttons */}
               <div className="flex gap-2">
                 <button
                   onClick={() => likeMutation.mutate()}
@@ -300,6 +315,14 @@ export default function ProductPage() {
                 >
                   <Bookmark className={`h-4 w-4 sm:h-5 sm:w-5 ${wishlisted ? "fill-current" : ""}`} />
                 </button>
+                <a
+                  href={`https://wa.me/?text=${encodeURIComponent(`Check out ${product.name} on Fountstream: ${window.location.href}`)}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="p-2 rounded-lg border border-gray-200 text-gray-400 hover:border-green-400 hover:text-green-500 transition-colors"
+                  title="Share on WhatsApp"
+                >
+                  <Share2 className="h-4 w-4 sm:h-5 sm:w-5" />
+                </a>
               </div>
             </div>
 
@@ -497,6 +520,50 @@ export default function ProductPage() {
                     </div>
                   </div>
                   {r.body && <p className="text-sm text-gray-700 leading-relaxed">{r.body}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ── Q&A section ─────────────────────────────────────────────── */}
+        <div className="mt-12 sm:mt-16">
+          <h2 className="text-xl sm:text-2xl font-bold text-primary mb-6 flex items-center gap-2"><MessageCircle className="h-5 w-5" />Questions & Answers</h2>
+
+          {user && (
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
+              <p className="text-sm font-medium mb-3">Ask a question about this product</p>
+              <div className="flex gap-2">
+                <Input placeholder="Your question…" value={newQuestion} onChange={(e) => setNewQuestion(e.target.value)} className="flex-1" onKeyDown={(e) => e.key === "Enter" && newQuestion.trim() && questionMutation.mutate()} />
+                <Button disabled={!newQuestion.trim() || questionMutation.isPending} onClick={() => questionMutation.mutate()}>Ask</Button>
+              </div>
+            </div>
+          )}
+          {!user && <p className="text-sm text-gray-500 mb-6"><Link href="/" className="text-primary underline">Log in</Link> to ask a question about this product.</p>}
+
+          {questions.length === 0 ? (
+            <p className="text-center text-gray-400 py-6 text-sm">No questions yet. Be the first to ask!</p>
+          ) : (
+            <div className="space-y-4">
+              {questions.map((q: any) => (
+                <div key={q.id} className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                  <div className="flex items-start gap-3">
+                    <span className="text-primary font-bold text-sm mt-0.5">Q</span>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-900">{q.question}</p>
+                      <p className="text-xs text-gray-400 mt-1">{q.askerName} · {new Date(q.createdAt).toLocaleDateString("en-BW", { day: "numeric", month: "short", year: "numeric" })}</p>
+                    </div>
+                  </div>
+                  {q.answer && (
+                    <div className="flex items-start gap-3 mt-3 pt-3 border-t border-gray-50">
+                      <span className="text-green-600 font-bold text-sm mt-0.5">A</span>
+                      <div className="flex-1">
+                        <p className="text-sm text-gray-800">{q.answer}</p>
+                        <p className="text-xs text-gray-400 mt-1">Seller · {new Date(q.answeredAt).toLocaleDateString("en-BW", { day: "numeric", month: "short", year: "numeric" })}</p>
+                      </div>
+                    </div>
+                  )}
+                  {!q.answer && <p className="text-xs text-gray-400 mt-3 ml-7 italic">Awaiting seller response</p>}
                 </div>
               ))}
             </div>

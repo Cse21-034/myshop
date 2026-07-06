@@ -1,5 +1,5 @@
 // src/components/Header.tsx
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, useEffect, lazy, Suspense, useRef } from "react";
 const AuthModal = lazy(() => import("./AuthModal"));
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -24,9 +24,14 @@ import {
   User,
   ShoppingCart,
   Headphones,
+  Bell,
+  CheckCheck,
+  X as XIcon,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useCart } from "@/context/CartContext";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import CartDrawer from "./CartDrawer";
 import { clearCsrfToken } from "@/lib/queryClient";
 
@@ -71,6 +76,36 @@ export default function Header() {
   };
 
   const sessionId = localStorage.getItem("myshop_session_id") || "";
+  const queryClient = useQueryClient();
+  const [notifOpen, setNotifOpen] = useState(false);
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  const { data: notifList = [] } = useQuery<any[]>({
+    queryKey: ["/api/notifications"],
+    queryFn: () => fetch(`${backendURL}/api/notifications`, { credentials: "include" }).then(r => r.ok ? r.json() : []),
+    enabled: isAuthenticated,
+    refetchInterval: 60000,
+  });
+
+  const unreadCount = notifList.filter((n: any) => !n.read).length;
+
+  const readAllMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/notifications/read-all"),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/notifications"] }),
+  });
+
+  const deleteNotifMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/notifications/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/notifications"] }),
+  });
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   return (
     <>
@@ -228,11 +263,51 @@ export default function Header() {
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              {/*<Button variant="ghost" size="sm" onClick={toggleTheme}>
-  {theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-</Button>*/}
+              {/* Notification Bell */}
+              {isAuthenticated && (
+                <div className="relative" ref={notifRef}>
+                  <button className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors" onClick={() => setNotifOpen(!notifOpen)}>
+                    <Bell className="h-5 w-5 text-gray-600" />
+                    {unreadCount > 0 && (
+                      <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">{unreadCount > 9 ? "9+" : unreadCount}</span>
+                    )}
+                  </button>
+                  {notifOpen && (
+                    <div className="absolute right-0 top-full mt-2 w-80 bg-white border border-gray-100 rounded-xl shadow-xl z-50 overflow-hidden">
+                      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                        <span className="font-semibold text-sm">Notifications</span>
+                        {unreadCount > 0 && (
+                          <button className="text-xs text-primary flex items-center gap-1 hover:underline" onClick={() => readAllMutation.mutate()}>
+                            <CheckCheck className="h-3.5 w-3.5" />Mark all read
+                          </button>
+                        )}
+                      </div>
+                      <div className="max-h-80 overflow-y-auto divide-y divide-gray-50">
+                        {notifList.length === 0 ? (
+                          <div className="text-center text-sm text-gray-400 py-8">No notifications</div>
+                        ) : notifList.map((n: any) => (
+                          <div key={n.id} className={`flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition-colors ${!n.read ? "bg-blue-50/40" : ""}`}>
+                            <div className={`w-2 h-2 rounded-full mt-2 shrink-0 ${!n.read ? "bg-primary" : "bg-transparent"}`} />
+                            <div className="flex-1 min-w-0">
+                              {n.link ? (
+                                <a href={n.link} className="text-sm font-medium text-gray-900 hover:text-primary line-clamp-2" onClick={() => setNotifOpen(false)}>{n.title}</a>
+                              ) : (
+                                <p className="text-sm font-medium text-gray-900 line-clamp-2">{n.title}</p>
+                              )}
+                              {n.body && <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{n.body}</p>}
+                              <p className="text-[10px] text-gray-400 mt-1">{new Date(n.createdAt).toLocaleString("en-BW", { dateStyle: "short", timeStyle: "short" })}</p>
+                            </div>
+                            <button className="text-gray-300 hover:text-red-400 shrink-0 mt-1" onClick={() => deleteNotifMutation.mutate(n.id)}>
+                              <XIcon className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
-              
               {/* Shopping Cart */}
               <Button
                 variant="ghost"

@@ -5,7 +5,7 @@ import { storage } from "./storage";
 import { isAuthenticated } from "./googleAuth";
 import { eq, sql, and, count, avg, desc, gte, lt } from "drizzle-orm";
 import { db } from "./db";
-import { contactMessages, products, orders, productLikes, wishlistItems, productReviews, orderItems, users, stockNotifications, returnRequests, coupons } from "./schema";
+import { contactMessages, products, orders, productLikes, wishlistItems, productReviews, orderItems, users, stockNotifications, returnRequests, coupons, notifications, productQuestions, payoutRequests, abandonedCartLogs, cartItems, sellers } from "./schema";
 import { createStripePaymentIntent, initiateOrangeMoneyPayment } from "./payment";
 import { createPayPalOrder, capturePayPalOrder } from "./paypal-service";
 import { sendEmail, otpEmailTemplate, orderConfirmationTemplate, orderStatusUpdateTemplate } from "./email";
@@ -1367,6 +1367,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
       }
 
+      // In-app notification for the customer
+      if (updatedOrder.userId) {
+        const statusLabels: Record<string, string> = {
+          processing: "is being processed", shipped: "has been shipped",
+          delivered: "has been delivered", cancelled: "was cancelled",
+          confirmed: "has been confirmed",
+        };
+        const label = statusLabels[status] ?? `status changed to ${status}`;
+        db.insert(notifications).values({
+          userId: updatedOrder.userId,
+          type: "order_update",
+          title: `Order #${updatedOrder.id} ${label}`,
+          body: resolvedTracking ? `Tracking: ${resolvedTracking}` : null,
+          link: `/order-confirmation?orderId=${updatedOrder.id}`,
+        }).catch(() => {});
+      }
+
       res.json({ ...updatedOrder, trackingNumber: resolvedTracking });
     } catch (error) {
       console.error("Error updating order status:", error);
@@ -1764,6 +1781,270 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Import failed" });
     }
   });
+
+  // ── In-App Notifications ───────────────────────────────────────────────────
+
+  app.get("/api/notifications", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.user as any).id;
+      const rows = await db.select().from(notifications)
+        .where(eq(notifications.userId, userId))
+        .orderBy(desc(notifications.createdAt))
+        .limit(50);
+      res.json(rows);
+    } catch { res.status(500).json({ message: "Failed" }); }
+  });
+
+  app.post("/api/notifications/read-all", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.user as any).id;
+      await db.update(notifications).set({ read: true }).where(eq(notifications.userId, userId));
+      res.json({ ok: true });
+    } catch { res.status(500).json({ message: "Failed" }); }
+  });
+
+  app.delete("/api/notifications/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.user as any).id;
+      await db.delete(notifications).where(and(eq(notifications.id, parseInt(req.params.id)), eq(notifications.userId, userId)));
+      res.json({ ok: true });
+    } catch { res.status(500).json({ message: "Failed" }); }
+  });
+
+  // Internal helper — call after status changes
+  async function pushNotification(userId: string, type: string, title: string, body: string, link?: string) {
+    try {
+      await db.insert(notifications).values({ userId, type, title, body: body || null, link: link || null });
+    } catch {}
+  }
+
+  // Fire notification on order status update (wire into existing PATCH /api/admin/orders/:id/status)
+  // (already handled below in the order-status route patch)
+
+  // ── Product Q&A ────────────────────────────────────────────────────────────
+
+  app.get("/api/products/:id/questions", async (req: Request, res: Response) => {
+    try {
+      const productId = parseInt(req.params.id);
+      const rows = await db
+        .select({
+          q: productQuestions,
+          askerName: users.firstName,
+          askerLast: users.lastName,
+        })
+        .from(productQuestions)
+        .innerJoin(users, eq(productQuestions.userId, users.id))
+        .where(eq(productQuestions.productId, productId))
+        .orderBy(desc(productQuestions.createdAt));
+      res.json(rows.map(r => ({
+        ...r.q,
+        askerName: `${r.askerName ?? ""} ${r.askerLast ?? ""}`.trim() || "Customer",
+      })));
+    } catch { res.status(500).json({ message: "Failed" }); }
+  });
+
+  app.post("/api/products/:id/questions", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const productId = parseInt(req.params.id);
+      const userId = (req.user as any).id;
+      const { question } = req.body;
+      if (!question?.trim()) return res.status(400).json({ message: "Question required" });
+      const [created] = await db.insert(productQuestions).values({ productId, userId, question: question.trim() }).returning();
+      res.status(201).json(created);
+    } catch { res.status(500).json({ message: "Failed" }); }
+  });
+
+  app.post("/api/questions/:id/answer", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      const answeredBy = (req.user as any).id;
+      const { answer } = req.body;
+      if (!answer?.trim()) return res.status(400).json({ message: "Answer required" });
+
+      const [q] = await db.select().from(productQuestions).where(eq(productQuestions.id, parseInt(req.params.id)));
+      if (!q) return res.status(404).json({ message: "Not found" });
+
+      // Allow admin or the product's seller to answer
+      if (!user?.isAdmin) {
+        const prod = await storage.getProduct(q.productId);
+        if (!prod || prod.sellerId !== answeredBy) return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const [updated] = await db.update(productQuestions)
+        .set({ answer: answer.trim(), answeredBy, answeredAt: new Date() })
+        .where(eq(productQuestions.id, q.id))
+        .returning();
+
+      // Notify the asker
+      await pushNotification(q.userId, "question_answered", "Your question was answered", answer.trim().slice(0, 100), `/product/${q.productId}`);
+
+      res.json(updated);
+    } catch { res.status(500).json({ message: "Failed" }); }
+  });
+
+  // ── Seller Earnings Dashboard ──────────────────────────────────────────────
+
+  app.get("/api/seller/earnings", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.user as any).id;
+      const seller = await storage.getSellerByUserId(userId);
+      if (!seller || seller.status !== "approved") return res.status(403).json({ message: "Approved seller account required" });
+
+      const commissionPct = seller.commissionPercent ?? 10;
+
+      // All order items for this seller's products
+      const rows = await db.execute(sql`
+        SELECT
+          oi.id,
+          oi.order_id,
+          oi.product_name,
+          oi.product_price,
+          oi.quantity,
+          o.status,
+          o.created_at,
+          o.email AS customer_email
+        FROM order_items oi
+        JOIN orders o ON o.id = oi.order_id
+        JOIN products p ON p.id = oi.product_id
+        WHERE p.seller_id = ${userId}
+        ORDER BY o.created_at DESC
+      `);
+
+      const items: any[] = rows.rows;
+      const grossRevenue = items.reduce((s, i) => s + parseFloat(i.product_price) * i.quantity, 0);
+      const commission = grossRevenue * commissionPct / 100;
+      const netEarnings = grossRevenue - commission;
+
+      // Monthly breakdown (last 6 months)
+      const monthlyMap: Record<string, number> = {};
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(); d.setMonth(d.getMonth() - i);
+        monthlyMap[d.toLocaleDateString("en-US", { month: "short", year: "numeric" })] = 0;
+      }
+      items.forEach(i => {
+        const key = new Date(i.created_at).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+        if (key in monthlyMap) monthlyMap[key] += parseFloat(i.product_price) * i.quantity;
+      });
+      const monthly = Object.entries(monthlyMap).map(([month, revenue]) => ({ month, revenue: parseFloat(revenue.toFixed(2)), net: parseFloat((revenue * (1 - commissionPct / 100)).toFixed(2)) }));
+
+      // Payout history
+      const payouts = await db.select().from(payoutRequests).where(eq(payoutRequests.sellerId, seller.id)).orderBy(desc(payoutRequests.createdAt));
+
+      const totalPaidOut = payouts.filter(p => p.status === "paid").reduce((s, p) => s + parseFloat(p.amount), 0);
+      const pendingPayout = payouts.filter(p => p.status === "pending").reduce((s, p) => s + parseFloat(p.amount), 0);
+
+      res.json({
+        grossRevenue: grossRevenue.toFixed(2),
+        commission: commission.toFixed(2),
+        commissionPct,
+        netEarnings: netEarnings.toFixed(2),
+        totalPaidOut: totalPaidOut.toFixed(2),
+        balance: (netEarnings - totalPaidOut - pendingPayout).toFixed(2),
+        monthly,
+        recentItems: items.slice(0, 20),
+        payouts,
+      });
+    } catch (err) {
+      console.error("[Seller Earnings]", err);
+      res.status(500).json({ message: "Failed to fetch earnings" });
+    }
+  });
+
+  app.post("/api/seller/payout-request", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.user as any).id;
+      const seller = await storage.getSellerByUserId(userId);
+      if (!seller || seller.status !== "approved") return res.status(403).json({ message: "Approved seller account required" });
+      const { amount, note } = req.body;
+      if (!amount || parseFloat(amount) <= 0) return res.status(400).json({ message: "Valid amount required" });
+      const [created] = await db.insert(payoutRequests).values({ sellerId: seller.id, amount: parseFloat(amount).toFixed(2), note: note || null }).returning();
+      res.status(201).json(created);
+    } catch { res.status(500).json({ message: "Failed" }); }
+  });
+
+  app.get("/api/admin/payout-requests", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      if (!user?.isAdmin) return res.status(403).json({ message: "Forbidden" });
+      const rows = await db.execute(sql`
+        SELECT pr.*, s.store_name, u.email AS seller_email
+        FROM payout_requests pr
+        JOIN sellers s ON s.id = pr.seller_id
+        JOIN users u ON u.id = s.user_id
+        ORDER BY pr.created_at DESC
+      `);
+      res.json(rows.rows);
+    } catch { res.status(500).json({ message: "Failed" }); }
+  });
+
+  app.patch("/api/admin/payout-requests/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      if (!user?.isAdmin) return res.status(403).json({ message: "Forbidden" });
+      const { status } = req.body;
+      const [updated] = await db.update(payoutRequests).set({ status }).where(eq(payoutRequests.id, parseInt(req.params.id))).returning();
+      res.json(updated);
+    } catch { res.status(500).json({ message: "Failed" }); }
+  });
+
+  // ── Notification push on order status change ───────────────────────────────
+  // Patch the existing order-status update to also push in-app notification
+  // (handled by calling pushNotification inside the existing route — we'll wire it below)
+
+  // ── Abandoned Cart Recovery (scheduled job) ────────────────────────────────
+  // Run every 15 minutes; find carts idle > 1 hour for logged-in users not yet emailed
+  setInterval(async () => {
+    try {
+      const stale = await db.execute(sql`
+        SELECT DISTINCT ci.user_id, u.email, u.first_name
+        FROM cart_items ci
+        JOIN users u ON u.id = ci.user_id
+        WHERE ci.user_id IS NOT NULL
+          AND ci.created_at < NOW() - INTERVAL '1 hour'
+          AND NOT EXISTS (
+            SELECT 1 FROM abandoned_cart_logs acl WHERE acl.user_id = ci.user_id
+              AND acl.sent_at > NOW() - INTERVAL '24 hours'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM orders o WHERE o.user_id = ci.user_id
+              AND o.created_at > NOW() - INTERVAL '24 hours'
+          )
+      `);
+
+      for (const row of (stale.rows as any[])) {
+        const { user_id, email, first_name } = row;
+        if (!email) continue;
+        const itemRows = await db.execute(sql`
+          SELECT p.name, ci.quantity FROM cart_items ci
+          JOIN products p ON p.id = ci.product_id
+          WHERE ci.user_id = ${user_id}
+        `);
+        const items = itemRows.rows as any[];
+        if (!items.length) continue;
+
+        const itemList = items.map((i: any) => `<li>${i.name} × ${i.quantity}</li>`).join("");
+        const html = `
+          <div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden">
+            <div style="background:#1a4731;padding:24px 32px;text-align:center">
+              <h1 style="color:#fff;margin:0;font-size:22px">Fountstream</h1>
+            </div>
+            <div style="padding:32px">
+              <h2 style="color:#111;margin:0 0 12px">Hi ${first_name ?? "there"}, you left something behind!</h2>
+              <p style="color:#555;line-height:1.6">You have items waiting in your cart:</p>
+              <ul style="color:#333;line-height:2">${itemList}</ul>
+              <div style="margin-top:24px;text-align:center">
+                <a href="${process.env.FRONTEND_URL ?? ""}/cart" style="display:inline-block;background:#1a4731;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600">Complete Your Purchase</a>
+              </div>
+            </div>
+          </div>`;
+
+        await sendEmail(email, "You left something in your cart!", html).catch(() => {});
+        await db.insert(abandonedCartLogs).values({ userId: user_id }).onConflictDoUpdate({ target: abandonedCartLogs.userId, set: { sentAt: new Date() } });
+      }
+    } catch (err) {
+      console.error("[AbandonedCart] Job failed:", err);
+    }
+  }, 15 * 60 * 1000);
 
   const httpServer = createServer(app);
   return httpServer;

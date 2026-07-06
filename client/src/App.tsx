@@ -45,6 +45,7 @@ import SellerProducts from "@/pages/SellerProducts";
 import SellerOrders from "@/pages/SellerOrders";
 import TrackOrder from "@/pages/TrackOrder";
 import Wishlist from "@/pages/Wishlist";
+import SellerEarnings from "@/pages/SellerEarnings";
 
 // Professional Loading Screen with consistent colors and mobile optimization
 function LoadingScreen() {
@@ -124,6 +125,7 @@ function Router() {
       <Route path="/seller/products/new" component={() => <ProtectedRoute component={SellerProducts} />} />
       <Route path="/seller/products" component={() => <ProtectedRoute component={SellerProducts} />} />
       <Route path="/seller/orders" component={() => <ProtectedRoute component={SellerOrders} />} />
+      <Route path="/seller/earnings" component={() => <ProtectedRoute component={SellerEarnings} />} />
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/reset-password" component={ResetPassword} />
       <Route path="/order-confirmation" component={OrderConfirmation} />
