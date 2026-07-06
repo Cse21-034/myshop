@@ -50,6 +50,7 @@ const productSchema = z.object({
 });
 const orderStatusSchema = z.object({
   status: z.enum(["awaiting_confirmation", "confirmed", "pending", "processing", "shipped", "delivered", "cancelled"]),
+  trackingNumber: z.string().optional(),
 });
 const messageStatusSchema = z.object({
   status: z.enum(["unread", "read", "replied"]),
@@ -145,7 +146,7 @@ export default function Admin() {
   });
   const orderForm = useForm<z.infer<typeof orderStatusSchema>>({
     resolver: zodResolver(orderStatusSchema),
-    defaultValues: { status: "pending" },
+    defaultValues: { status: "pending", trackingNumber: "" },
   });
   const messageForm = useForm<z.infer<typeof messageStatusSchema>>({
     resolver: zodResolver(messageStatusSchema),
@@ -275,8 +276,8 @@ export default function Admin() {
   });
 
   const updateOrderMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: number; status: string }) =>
-      apiRequest("PUT", `/api/orders/${id}/status`, { status }),
+    mutationFn: async ({ id, status, trackingNumber }: { id: number; status: string; trackingNumber?: string }) =>
+      apiRequest("PUT", `/api/orders/${id}/status`, { status, trackingNumber }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
@@ -784,12 +785,23 @@ export default function Admin() {
                       </Button>}
                       <Dialog open={isOrderDialogOpen} onOpenChange={setIsOrderDialogOpen}>
                         <DialogTrigger asChild>
-                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditingOrder(o); orderForm.reset({ status: o.status }); setIsOrderDialogOpen(true); }}><Edit className="h-3.5 w-3.5" /></Button>
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditingOrder(o); orderForm.reset({ status: o.status, trackingNumber: (o as any).trackingNumber ?? "" }); setIsOrderDialogOpen(true); }}><Edit className="h-3.5 w-3.5" /></Button>
                         </DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader><DialogTitle>Update Order #{editingOrder?.id}</DialogTitle></DialogHeader>
+                        <DialogContent className="max-w-md">
+                          <DialogHeader><DialogTitle>Order #{editingOrder?.id}</DialogTitle></DialogHeader>
+                          {editingOrder && (
+                            <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1 mb-2">
+                              <p className="font-medium">{editingOrder.firstName} {editingOrder.lastName}</p>
+                              <p className="text-gray-500 text-xs">{editingOrder.email} · {editingOrder.phone}</p>
+                              <p className="text-gray-500 text-xs">{editingOrder.address}, {editingOrder.city}</p>
+                              <div className="flex items-center justify-between pt-1 border-t border-gray-200 mt-2">
+                                <span className="text-gray-500 text-xs">Total</span>
+                                <span className="font-semibold text-sm">P {(parseFloat(editingOrder.total) * 13.5).toFixed(2)}</span>
+                              </div>
+                            </div>
+                          )}
                           <Form {...orderForm}>
-                            <form onSubmit={orderForm.handleSubmit((d) => editingOrder && updateOrderMutation.mutate({ id: editingOrder.id, status: d.status }))} className="space-y-4">
+                            <form onSubmit={orderForm.handleSubmit((d) => editingOrder && updateOrderMutation.mutate({ id: editingOrder.id, status: d.status, trackingNumber: d.trackingNumber }))} className="space-y-4">
                               <FormField control={orderForm.control} name="status" render={({ field }) => (
                                 <FormItem><FormLabel>Status</FormLabel>
                                   <Select onValueChange={field.onChange} value={field.value}>
@@ -800,7 +812,17 @@ export default function Admin() {
                                   </Select><FormMessage />
                                 </FormItem>
                               )} />
-                              <Button type="submit" className="w-full" disabled={updateOrderMutation.isPending}>Update</Button>
+                              <FormField control={orderForm.control} name="trackingNumber" render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Tracking Number <span className="text-gray-400 font-normal">(optional)</span></FormLabel>
+                                  <FormControl><Input placeholder="e.g. BW123456789" {...field} /></FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )} />
+                              <p className="text-xs text-gray-400">Customer will receive an email notification when you save.</p>
+                              <Button type="submit" className="w-full" disabled={updateOrderMutation.isPending}>
+                                {updateOrderMutation.isPending ? "Saving…" : "Save & Notify Customer"}
+                              </Button>
                             </form>
                           </Form>
                         </DialogContent>

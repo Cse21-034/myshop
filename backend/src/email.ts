@@ -176,7 +176,7 @@ export function orderStatusUpdateTemplate(order: {
       <p style="color:#555;margin:0 0 16px;line-height:1.6;text-align:center">${cfg.message}</p>
       ${trackingSection}
       <div style="margin-top:24px;text-align:center">
-        <a href="${process.env.FRONTEND_URL ?? "https://myshop-test.vercel.app"}/orders" style="display:inline-block;background:#1a4731;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:14px">View My Orders</a>
+        <a href="${process.env.FRONTEND_URL ?? "https://myshop-test.vercel.app"}/track-order" style="display:inline-block;background:#1a4731;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:14px">Track My Order</a>
       </div>
     </div>
     <div style="background:#f9f9f9;padding:16px 32px;text-align:center">

@@ -5,7 +5,7 @@ import { storage } from "./storage";
 import { isAuthenticated } from "./googleAuth";
 import { eq, sql } from "drizzle-orm";
 import { db } from "./db";
-import { contactMessages, products } from "./schema";
+import { contactMessages, products, orders } from "./schema";
 import { createStripePaymentIntent, initiateOrangeMoneyPayment } from "./payment";
 import { createPayPalOrder, capturePayPalOrder } from "./paypal-service";
 import { sendEmail, otpEmailTemplate, orderConfirmationTemplate, orderStatusUpdateTemplate } from "./email";
@@ -1057,6 +1057,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Guest order lookup — no auth, verified by email + orderId match
+  app.post("/api/orders/track", async (req: Request, res: Response) => {
+    try {
+      const { email, orderId } = req.body;
+      if (!email || !orderId) {
+        return res.status(400).json({ message: "Email and order ID are required" });
+      }
+      const order = await storage.getOrder(Number(orderId));
+      if (!order || order.email.toLowerCase() !== (email as string).toLowerCase()) {
+        return res.status(404).json({ message: "No order found with that email and order ID" });
+      }
+      const items = await storage.getOrderItemsByOrderId(order.id);
+      res.json({ ...order, items });
+    } catch (error) {
+      console.error("[Track Order]", error);
+      res.status(500).json({ message: "Failed to look up order" });
+    }
+  });
+
   app.get("/api/orders", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const userId = (req.user as any).id;
@@ -1118,11 +1137,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updatedOrder = await storage.updateOrderStatus(id, status);
 
       // Save tracking number if provided
+      let resolvedTracking = updatedOrder.trackingNumber ?? null;
       if (trackingNumber !== undefined) {
-        await db
-          .update(orders)
-          .set({ trackingNumber: trackingNumber || null } as any)
-          .where(eq(orders.id, id));
+        const trimmed = (trackingNumber as string).trim() || null;
+        await db.update(orders).set({ trackingNumber: trimmed }).where(eq(orders.id, id));
+        resolvedTracking = trimmed;
       }
 
       // Email customer on every status change
@@ -1133,7 +1152,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           id: updatedOrder.id,
           firstName: updatedOrder.firstName,
           status,
-          trackingNumber: trackingNumber ?? null,
+          trackingNumber: resolvedTracking,
         }),
       ).catch((err) => console.error("[Email] Status update notification failed:", err));
 
@@ -1145,7 +1164,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
       }
 
-      res.json({ ...updatedOrder, trackingNumber: trackingNumber ?? null });
+      res.json({ ...updatedOrder, trackingNumber: resolvedTracking });
     } catch (error) {
       console.error("Error updating order status:", error);
       res.status(500).json({ message: "Failed to update order status", code: "UPDATE_ORDER_STATUS_ERROR" });

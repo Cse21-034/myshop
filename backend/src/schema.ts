@@ -113,6 +113,7 @@ export const orders = pgTable("orders", {
   remainingBalance: decimal("remaining_balance", { precision: 10, scale: 2 }),
   // Lets guests view their own order confirmation without logging in
   accessToken: varchar("access_token"),
+  trackingNumber: varchar("tracking_number"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
