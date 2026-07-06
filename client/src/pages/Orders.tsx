@@ -91,8 +91,20 @@ export default function Orders() {
                 </TableCell>
                 <TableCell>{convertUsdToBwp(order.total)}</TableCell>
                 <TableCell>
-                  <Badge variant={order.status === "pending" ? "secondary" : "outline"}>
-                    {order.status}
+                  <Badge className={
+                    order.status === "delivered"
+                      ? "bg-green-100 text-green-800 border-green-200"
+                      : order.status === "shipped"
+                      ? "bg-purple-100 text-purple-800 border-purple-200"
+                      : order.status === "processing" || order.status === "confirmed"
+                      ? "bg-blue-100 text-blue-800 border-blue-200"
+                      : order.status === "cancelled"
+                      ? "bg-red-100 text-red-800 border-red-200"
+                      : order.status === "awaiting_confirmation"
+                      ? "bg-amber-100 text-amber-800 border-amber-200"
+                      : "bg-gray-100 text-gray-700 border-gray-200"
+                  }>
+                    {order.status.replace(/_/g, " ")}
                   </Badge>
                 </TableCell>
                 <TableCell>{new Date(order.createdAt).toLocaleDateString()}</TableCell>

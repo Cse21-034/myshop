@@ -132,6 +132,61 @@ export function orderConfirmationTemplate(order: {
 </html>`.trim();
 }
 
+export function orderStatusUpdateTemplate(order: {
+  id: number;
+  firstName: string;
+  status: string;
+  trackingNumber?: string | null;
+}): string {
+  const statusConfig: Record<string, { label: string; message: string; color: string; emoji: string }> = {
+    processing:            { label: "Processing",  message: "We've received your order and are getting it ready.",        color: "#2563eb", emoji: "🔄" },
+    shipped:               { label: "Shipped",     message: "Your order is on its way! Expect delivery soon.",            color: "#7c3aed", emoji: "🚚" },
+    delivered:             { label: "Delivered",   message: "Your order has been delivered. Enjoy your purchase!",        color: "#16a34a", emoji: "✅" },
+    cancelled:             { label: "Cancelled",   message: "Your order has been cancelled. Contact us if you need help.", color: "#dc2626", emoji: "❌" },
+    confirmed:             { label: "Confirmed",   message: "Your reservation has been confirmed by the seller.",          color: "#16a34a", emoji: "✅" },
+    awaiting_confirmation: { label: "Pending",     message: "Your order is awaiting confirmation from the seller.",        color: "#d97706", emoji: "⏳" },
+  };
+
+  const cfg = statusConfig[order.status] ?? { label: order.status, message: "Your order status has been updated.", color: "#1a4731", emoji: "📦" };
+
+  const trackingSection = order.trackingNumber
+    ? `<div style="margin-top:16px;background:#f0faf4;border-radius:8px;padding:14px;border-left:4px solid #1a4731">
+        <p style="margin:0 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px">Tracking Number</p>
+        <p style="margin:0;font-size:16px;font-weight:700;color:#1a4731;letter-spacing:2px">${order.trackingNumber}</p>
+      </div>`
+    : "";
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:sans-serif;background:#f5f5f5;margin:0;padding:24px">
+  <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08)">
+    <div style="background:#1a4731;padding:28px 32px;text-align:center">
+      <h1 style="color:#fff;margin:0;font-size:24px;font-weight:700">Fountstream</h1>
+      <p style="color:#86efac;margin:8px 0 0;font-size:14px">Order Update</p>
+    </div>
+    <div style="padding:32px">
+      <h2 style="color:#111;margin:0 0 8px;font-size:20px">Hi ${order.firstName},</h2>
+      <p style="color:#555;margin:0 0 20px;line-height:1.6">Your order status has been updated.</p>
+      <div style="background:#f9fafb;border-radius:8px;padding:20px;margin-bottom:20px;text-align:center">
+        <p style="margin:0 0 8px;font-size:32px">${cfg.emoji}</p>
+        <p style="margin:0 0 6px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px">Order #${order.id} is now</p>
+        <p style="margin:0;font-size:24px;font-weight:700;color:${cfg.color}">${cfg.label}</p>
+      </div>
+      <p style="color:#555;margin:0 0 16px;line-height:1.6;text-align:center">${cfg.message}</p>
+      ${trackingSection}
+      <div style="margin-top:24px;text-align:center">
+        <a href="${process.env.FRONTEND_URL ?? "https://myshop-test.vercel.app"}/orders" style="display:inline-block;background:#1a4731;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:14px">View My Orders</a>
+      </div>
+    </div>
+    <div style="background:#f9f9f9;padding:16px 32px;text-align:center">
+      <p style="color:#aaa;font-size:12px;margin:0">© ${new Date().getFullYear()} Fountstream — Thank you for shopping with us!</p>
+    </div>
+  </div>
+</body>
+</html>`.trim();
+}
+
 export function otpEmailTemplate(otp: string, firstName: string): string {
   const digits = otp
     .split("")

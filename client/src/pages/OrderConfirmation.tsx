@@ -35,8 +35,67 @@ interface Order {
   depositAmount: string | null;
   remainingBalance: string | null;
   fulfillmentType: string | null;
+  trackingNumber: string | null;
   createdAt: string;
   items: OrderItem[];
+}
+
+// ─── Tracking timeline ────────────────────────────────────────────────────────
+
+const STEPS = ["pending", "processing", "shipped", "delivered"] as const;
+type Step = typeof STEPS[number];
+
+const STEP_LABELS: Record<Step, string> = {
+  pending:    "Order Placed",
+  processing: "Processing",
+  shipped:    "Shipped",
+  delivered:  "Delivered",
+};
+
+function getStepIndex(status: string): number {
+  if (status === "cancelled") return -1;
+  const idx = STEPS.indexOf(status as Step);
+  // treat confirmed / awaiting_confirmation as processing
+  return idx === -1 ? 1 : idx;
+}
+
+function TrackingTimeline({ status }: { status: string }) {
+  if (status === "cancelled") {
+    return (
+      <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-red-700 text-sm font-medium">
+        <span>❌</span> This order has been cancelled.
+      </div>
+    );
+  }
+
+  const current = getStepIndex(status);
+
+  return (
+    <div className="relative flex items-start justify-between mb-2">
+      {STEPS.map((step, i) => {
+        const done    = i < current;
+        const active  = i === current;
+        return (
+          <div key={step} className="flex flex-col items-center flex-1 relative">
+            {/* connector line */}
+            {i > 0 && (
+              <div className={`absolute left-0 top-4 w-full h-0.5 -translate-x-1/2 ${done || active ? "bg-green-500" : "bg-gray-200"}`} />
+            )}
+            {/* circle */}
+            <div className={`relative z-10 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold border-2 transition-all
+              ${done   ? "bg-green-500 border-green-500 text-white"
+              : active ? "bg-white border-green-500 text-green-700"
+                       : "bg-white border-gray-200 text-gray-400"}`}>
+              {done ? "✓" : i + 1}
+            </div>
+            <p className={`mt-2 text-xs text-center leading-tight ${active ? "text-green-700 font-semibold" : done ? "text-green-600" : "text-gray-400"}`}>
+              {STEP_LABELS[step]}
+            </p>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function OrderConfirmation() {
@@ -132,6 +191,18 @@ export default function OrderConfirmation() {
       <Header />
       <main className="flex-grow container mx-auto px-4 py-12 max-w-3xl">
         <h1 className="text-3xl font-bold mb-6 text-primary">Order Receipt</h1>
+
+        {/* Tracking timeline — shown above the printable receipt */}
+        <div className="bg-white p-6 rounded shadow border border-gray-200 mb-6">
+          <h2 className="font-semibold text-base mb-4">Order Status</h2>
+          <TrackingTimeline status={order.status} />
+          {order.trackingNumber && (
+            <div className="mt-4 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+              <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Tracking Number</p>
+              <p className="font-mono font-bold text-gray-800 tracking-widest text-sm">{order.trackingNumber}</p>
+            </div>
+          )}
+        </div>
 
         <div ref={orderRef} className="bg-white p-6 rounded shadow space-y-6 border border-gray-200">
 

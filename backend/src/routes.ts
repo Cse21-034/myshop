@@ -8,7 +8,7 @@ import { db } from "./db";
 import { contactMessages, products } from "./schema";
 import { createStripePaymentIntent, initiateOrangeMoneyPayment } from "./payment";
 import { createPayPalOrder, capturePayPalOrder } from "./paypal-service";
-import { sendEmail, otpEmailTemplate, orderConfirmationTemplate } from "./email";
+import { sendEmail, otpEmailTemplate, orderConfirmationTemplate, orderStatusUpdateTemplate } from "./email";
 import { setOtp, getOtp, incrementOtpAttempts, deleteOtp } from "./tokenStore";
 import {
   insertProductSchema,
@@ -1107,7 +1107,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/orders/:id/status", isAuthenticated, csrfProtection, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
-      const { status } = req.body;
+      const { status, trackingNumber } = req.body;
       const userId = (req.user as any).id;
       const user = await storage.getUser(userId);
 
@@ -1117,7 +1117,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const updatedOrder = await storage.updateOrderStatus(id, status);
 
-      // Notify customer via WhatsApp when a farm reservation is confirmed or cancelled
+      // Save tracking number if provided
+      if (trackingNumber !== undefined) {
+        await db
+          .update(orders)
+          .set({ trackingNumber: trackingNumber || null } as any)
+          .where(eq(orders.id, id));
+      }
+
+      // Email customer on every status change
+      sendEmail(
+        updatedOrder.email,
+        `Order #${updatedOrder.id} Update — ${status.replace(/_/g, " ")}`,
+        orderStatusUpdateTemplate({
+          id: updatedOrder.id,
+          firstName: updatedOrder.firstName,
+          status,
+          trackingNumber: trackingNumber ?? null,
+        }),
+      ).catch((err) => console.error("[Email] Status update notification failed:", err));
+
+      // WhatsApp for farm reservation confirm/cancel
       if (status === "confirmed" || status === "cancelled") {
         const items = await storage.getOrderItemsByOrderId(id);
         sendReservationStatusToCustomer({ ...updatedOrder, items }, status === "confirmed").catch((err) =>
@@ -1125,7 +1145,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
       }
 
-      res.json(updatedOrder);
+      res.json({ ...updatedOrder, trackingNumber: trackingNumber ?? null });
     } catch (error) {
       console.error("Error updating order status:", error);
       res.status(500).json({ message: "Failed to update order status", code: "UPDATE_ORDER_STATUS_ERROR" });

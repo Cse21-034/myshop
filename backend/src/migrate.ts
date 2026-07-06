@@ -53,6 +53,9 @@ async function migrate() {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_mpm_marketplace_id ON marketplace_product_map(marketplace_id)`,
 
+    // Order tracking
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_number varchar`,
+
     // Kgotla marketplace bridge table
     `CREATE TABLE IF NOT EXISTS kgotla_product_map (
       id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
