@@ -102,53 +102,19 @@ function convertToUSD(price: number, currency: string): number {
   }
 }
 
-// ─── Cloudinary upload ────────────────────────────────────────────────────────
+// ─── Image helper ─────────────────────────────────────────────────────────────
 
-async function uploadBase64ToCloudinary(base64: string): Promise<string | null> {
-  const cloudName    = process.env.CLOUDINARY_CLOUD_NAME;
-  const uploadPreset = process.env.CLOUDINARY_UPLOAD_PRESET;
-  if (!cloudName || !uploadPreset) return null;
-
-  const dataUrl = base64.startsWith("data:") ? base64 : `data:image/jpeg;base64,${base64}`;
-
-  const body = new URLSearchParams();
-  body.append("file", dataUrl);
-  body.append("upload_preset", uploadPreset);
-  body.append("folder", "kgotla");
-  body.append("use_filename", "false");  // prevent Cloudinary parsing the data URL as a filename
-
-  const res = await fetch(
-    `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
-    { method: "POST", body, signal: AbortSignal.timeout(20_000) },
-  );
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    throw new Error(`Cloudinary upload failed (${res.status}): ${errText.slice(0, 200)}`);
+function isValidUrl(s: string): boolean {
+  try {
+    const p = new URL(s.trim());
+    return p.protocol === "http:" || p.protocol === "https:";
+  } catch {
+    return false;
   }
-
-  const data = await res.json() as { secure_url: string };
-  return data.secure_url;
 }
 
-async function uploadImages(base64Array: string[]): Promise<string[]> {
-  if (!base64Array.length) return [];
-
-  if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_UPLOAD_PRESET) {
-    console.warn("[Kgotla Sync] Cloudinary not configured — skipping image upload");
-    return [];
-  }
-
-  const urls: string[] = [];
-  for (const b64 of base64Array.slice(0, 4)) {
-    try {
-      const url = await uploadBase64ToCloudinary(b64);
-      if (url) urls.push(url);
-    } catch (err: any) {
-      console.warn(`[Kgotla Sync] Image upload skipped: ${err.message}`);
-    }
-  }
-  return urls;
+function resolveImages(images: string[]): string[] {
+  return images.filter((s) => s && isValidUrl(s)).slice(0, 4);
 }
 
 // ─── Slug builder ─────────────────────────────────────────────────────────────
@@ -218,7 +184,7 @@ export async function syncKgotlaProducts(): Promise<{
     try {
       const categoryId = await getOrCreateKgotlaCategoryId(listing.category);
       const usdPrice   = convertToUSD(listing.price, listing.currency);
-      const images     = await uploadImages(listing.images ?? []);
+      const images     = resolveImages(listing.images ?? []);
 
       const entityDetails = {
         sellerId:         listing.sellerId,
