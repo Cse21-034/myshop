@@ -992,9 +992,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         for (const item of items as { productId: number; quantity: number }[]) {
           const prod = stockRows.find((p) => p.id === item.productId);
-          if (prod && prod.stock < item.quantity) {
+          if (prod && (prod.stock ?? 0) < item.quantity) {
             return res.status(400).json({
-              message: `"${prod.name}" only has ${prod.stock} unit(s) in stock`,
+              message: `"${prod.name}" only has ${prod.stock ?? 0} unit(s) in stock`,
               code: "OUT_OF_STOCK",
             });
           }
