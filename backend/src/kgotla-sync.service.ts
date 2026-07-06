@@ -115,6 +115,7 @@ async function uploadBase64ToCloudinary(base64: string): Promise<string | null> 
   body.append("file", dataUrl);
   body.append("upload_preset", uploadPreset);
   body.append("folder", "kgotla");
+  body.append("use_filename", "false");  // prevent Cloudinary parsing the data URL as a filename
 
   const res = await fetch(
     `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
