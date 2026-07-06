@@ -41,6 +41,27 @@ async function migrate() {
       created_at timestamp DEFAULT now(),
       updated_at timestamp DEFAULT now()
     )`,
+
+    // ERM marketplace bridge table
+    `CREATE TABLE IF NOT EXISTS marketplace_product_map (
+      id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      product_id integer NOT NULL UNIQUE,
+      marketplace_id varchar(36) NOT NULL UNIQUE,
+      farm_id varchar,
+      entity_type varchar,
+      last_synced_at timestamp DEFAULT now()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_mpm_marketplace_id ON marketplace_product_map(marketplace_id)`,
+
+    // Kgotla marketplace bridge table
+    `CREATE TABLE IF NOT EXISTS kgotla_product_map (
+      id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      product_id integer NOT NULL UNIQUE,
+      kgotla_item_id integer NOT NULL UNIQUE,
+      kgotla_seller_id varchar,
+      last_synced_at timestamp DEFAULT now()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_kpm_kgotla_item_id ON kgotla_product_map(kgotla_item_id)`,
   ];
 
   for (const statement of migrations) {

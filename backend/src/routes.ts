@@ -26,6 +26,10 @@ import { sendWhatsAppMessage, sendReservationStatusToCustomer } from "./twilio";
 import { syncMarketplaceProducts } from "./marketplace-sync.service";
 import { notifyERMOfOrder } from "./erm-order-notify.service";
 
+// ── Kgotla Marketplace Integration ───────────────────────────────────────────
+import { syncKgotlaProducts } from "./kgotla-sync.service";
+import { notifyKgotlaOfOrder } from "./kgotla-order-notify.service";
+
 // Simple in-memory rate limiter for contact form (5 submissions per IP per hour)
 const contactRateLimit = new Map<string, number[]>();
 
@@ -53,6 +57,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }, syncIntervalMs);
     console.log(
       `[ERM Sync] Periodic sync scheduled every ${syncIntervalMs / 60000} min`,
+    );
+  }
+
+  // ── Kgotla: Sync on startup (non-blocking) ────────────────────────────────
+  if (process.env.KGOTLA_AUTO_SYNC_ON_START === "true") {
+    syncKgotlaProducts().catch((err) =>
+      console.error("[Kgotla Sync] Startup sync failed:", err),
+    );
+  }
+
+  // ── Kgotla: Periodic background sync ─────────────────────────────────────
+  const kgotlaSyncIntervalMs = parseInt(
+    process.env.KGOTLA_SYNC_INTERVAL_MS ?? "900000",
+    10,
+  );
+
+  if (process.env.KGOTLA_AUTO_SYNC === "true") {
+    setInterval(() => {
+      syncKgotlaProducts().catch((err) =>
+        console.error("[Kgotla Sync] Periodic sync failed:", err),
+      );
+    }, kgotlaSyncIntervalMs);
+    console.log(
+      `[Kgotla Sync] Periodic sync scheduled every ${kgotlaSyncIntervalMs / 60000} min`,
     );
   }
 
@@ -137,6 +165,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, order_id: ecommerce_order_id, status });
     } catch (error) {
       console.error("[ERM Order Status] Error:", error);
+      res.status(500).json({ message: "Failed to update order status" });
+    }
+  });
+
+  // ==========================================================================
+  // KGOTLA ADMIN ROUTES
+  // ==========================================================================
+
+  app.post("/api/kgotla/sync", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      if (!user?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required", code: "FORBIDDEN" });
+      }
+      console.log("[Kgotla Sync] Manual sync triggered by admin", (req.user as any).id);
+      const summary = await syncKgotlaProducts();
+      res.json({ message: "Kgotla sync complete", summary });
+    } catch (error) {
+      console.error("[Kgotla Sync] Manual sync failed:", error);
+      res.status(500).json({ message: "Kgotla sync failed", code: "KGOTLA_SYNC_ERROR" });
+    }
+  });
+
+  app.get("/api/kgotla/status", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUser((req.user as any).id);
+      if (!user?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required", code: "FORBIDDEN" });
+      }
+      res.json({
+        kgotlaApiUrl:       process.env.KGOTLA_API_URL ?? "https://kgotla-backend.onrender.com",
+        autoSyncEnabled:    process.env.KGOTLA_AUTO_SYNC === "true",
+        syncIntervalMinutes: kgotlaSyncIntervalMs / 60000,
+        orderNotifyEnabled: process.env.KGOTLA_NOTIFY_ORDERS === "true",
+        cloudinaryConfigured: !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_UPLOAD_PRESET),
+      });
+    } catch (error) {
+      console.error("[Kgotla Status] Error:", error);
+      res.status(500).json({ message: "Failed to fetch Kgotla status", code: "KGOTLA_STATUS_ERROR" });
+    }
+  });
+
+  // Kgotla → Myshop status callback (called by Kgotla when order status changes)
+  app.post("/api/kgotla/order-status", async (req: Request, res: Response) => {
+    const secret = req.headers["x-myshop-secret"];
+    if (!secret || secret !== process.env.KGOTLA_API_SECRET) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    try {
+      const { myshop_order_id, status } = req.body;
+      if (!myshop_order_id || !status) {
+        return res.status(400).json({ message: "myshop_order_id and status are required" });
+      }
+
+      // Map Kgotla status values to Myshop statuses
+      const STATUS_MAP: Record<string, string> = {
+        confirmed:  "processing",
+        dispatched: "shipped",
+        completed:  "delivered",
+        cancelled:  "cancelled",
+      };
+
+      const myshopStatus = STATUS_MAP[status];
+      if (!myshopStatus) {
+        return res.status(400).json({ message: `Unknown status: ${status}` });
+      }
+
+      const order = await storage.getOrder(Number(myshop_order_id));
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      await storage.updateOrderStatus(Number(myshop_order_id), myshopStatus);
+      console.log(`[Kgotla Status] Order #${myshop_order_id} → ${myshopStatus} (from Kgotla: ${status})`);
+      res.json({ success: true, order_id: myshop_order_id, status: myshopStatus });
+    } catch (error) {
+      console.error("[Kgotla Status] Error:", error);
       res.status(500).json({ message: "Failed to update order status" });
     }
   });
@@ -930,6 +1035,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       notifyERMOfOrder(order, items).catch((err) =>
         console.error("[ERM Notify] Background notification failed:", err),
+      );
+      notifyKgotlaOfOrder(order, items).catch((err) =>
+        console.error("[Kgotla Notify] Background notification failed:", err),
       );
 
       // Order confirmation email to customer

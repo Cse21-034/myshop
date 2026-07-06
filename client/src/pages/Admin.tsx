@@ -56,7 +56,7 @@ const messageStatusSchema = z.object({
 });
 type ProductFormData = z.infer<typeof productSchema>;
 
-type Section = "overview" | "products" | "orders" | "messages" | "sellers" | "farm";
+type Section = "overview" | "products" | "orders" | "messages" | "sellers" | "farm" | "kgotla";
 
 // ── Chart colours ─────────────────────────────────────────────────────────────
 const PIE_COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
@@ -133,6 +133,7 @@ export default function Admin() {
   const [newColor, setNewColor] = useState("");
   const [supplierUrl, setSupplierUrl] = useState("");
   const [syncResult, setSyncResult] = useState<{ created: number; updated: number; deactivated: number } | null>(null);
+  const [kgotlaSyncResult, setKgotlaSyncResult] = useState<{ created: number; updated: number; deactivated: number } | null>(null);
 
   const productForm = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
@@ -195,6 +196,15 @@ export default function Admin() {
     queryKey: ["/api/erm/status"],
     queryFn: async () => {
       const res = await fetch(`${BASE_URL}/api/erm/status`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    retry: false,
+  });
+  const { data: kgotlaStatus, refetch: refetchKgotlaStatus } = useQuery({
+    queryKey: ["/api/kgotla/status"],
+    queryFn: async () => {
+      const res = await fetch(`${BASE_URL}/api/kgotla/status`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
@@ -338,6 +348,16 @@ export default function Admin() {
     },
     onError: (e) => toast({ title: "Sync failed", description: (e as Error).message, variant: "destructive" }),
   });
+  const kgotlaSyncMutation = useMutation({
+    mutationFn: async () => (await apiRequest("POST", "/api/kgotla/sync")).json(),
+    onSuccess: (data) => {
+      const s = data.summary ?? data;
+      setKgotlaSyncResult({ created: s.created ?? 0, updated: s.updated ?? 0, deactivated: s.deactivated ?? 0 });
+      refetchKgotlaStatus(); queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      toast({ title: "Kgotla sync complete", description: `${s.created ?? 0} created, ${s.updated ?? 0} updated, ${s.deactivated ?? 0} deactivated.` });
+    },
+    onError: (e) => toast({ title: "Kgotla sync failed", description: (e as Error).message, variant: "destructive" }),
+  });
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
   function handleEditProduct(p: Product) {
@@ -389,6 +409,7 @@ export default function Admin() {
         <NavItem icon={Mail} label="Messages" active={section === "messages"} badge={unreadCount || undefined} onClick={() => go("messages")} />
         <NavItem icon={Store} label="Sellers" active={section === "sellers"} badge={pendingSellers || undefined} onClick={() => go("sellers")} />
         <NavItem icon={Tractor} label="Farm Market" active={section === "farm"} onClick={() => go("farm")} />
+        <NavItem icon={Store} label="Kgotla Market" active={section === "kgotla"} onClick={() => go("kgotla")} />
       </nav>
 
       {/* Bottom */}
@@ -970,9 +991,84 @@ export default function Admin() {
     </div>
   );
 
+  // ── Kgotla section ────────────────────────────────────────────────────────────
+  const kgotlaSection = (
+    <div className="space-y-4">
+      <Card className="border-0 shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Store className="h-4 w-4 text-blue-600" />
+            Kgotla Marketplace Sync
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-gray-500">
+            Pull the latest listings from Kgotla. New products are created, existing ones updated, and removed listings are deactivated. All Kgotla items are set to Cash on Delivery.
+          </p>
+          <Button
+            onClick={() => kgotlaSyncMutation.mutate()}
+            disabled={kgotlaSyncMutation.isPending}
+            className="bg-blue-600 hover:bg-blue-700 gap-2"
+          >
+            <RefreshCw className={`h-4 w-4 ${kgotlaSyncMutation.isPending ? "animate-spin" : ""}`} />
+            {kgotlaSyncMutation.isPending ? "Syncing…" : "Sync Now"}
+          </Button>
+          {kgotlaSyncResult && (
+            <div className="flex gap-4 rounded-lg bg-blue-50 border border-blue-100 p-4 text-sm text-blue-800">
+              <CheckCircle2 className="h-5 w-5 flex-shrink-0" />
+              <div>
+                <p className="font-semibold mb-1">Sync complete</p>
+                <div className="flex gap-4 text-xs">
+                  <span><strong>{kgotlaSyncResult.created}</strong> created</span>
+                  <span><strong>{kgotlaSyncResult.updated}</strong> updated</span>
+                  <span><strong>{kgotlaSyncResult.deactivated}</strong> deactivated</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      <Card className="border-0 shadow-sm">
+        <CardHeader><CardTitle className="text-base">Kgotla Connection Status</CardTitle></CardHeader>
+        <CardContent>
+          {kgotlaStatus ? (
+            <div className="space-y-3 text-sm">
+              <div className="flex items-center gap-2 text-blue-600">
+                <CheckCircle2 className="h-4 w-4" />
+                <span className="font-medium">Kgotla API configured</span>
+              </div>
+              <div className="grid grid-cols-2 gap-y-1.5 gap-x-6 text-xs text-gray-600">
+                <span className="font-medium text-gray-700">API URL</span>
+                <span className="truncate">{kgotlaStatus.kgotlaApiUrl}</span>
+                <span className="font-medium text-gray-700">Auto-sync</span>
+                <span>{kgotlaStatus.autoSyncEnabled ? `Every ${kgotlaStatus.syncIntervalMinutes} min` : "Disabled"}</span>
+                <span className="font-medium text-gray-700">Order notifications</span>
+                <span>{kgotlaStatus.orderNotifyEnabled ? "Enabled" : "Disabled"}</span>
+                <span className="font-medium text-gray-700">Cloudinary images</span>
+                <span>{kgotlaStatus.cloudinaryConfigured ? "Configured" : "Not configured"}</span>
+              </div>
+              {!kgotlaStatus.autoSyncEnabled && (
+                <div className="flex gap-2 rounded-md bg-amber-50 border border-amber-100 p-3 text-xs text-amber-700">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  <span>Set <strong>KGOTLA_AUTO_SYNC=true</strong> in Render environment variables to enable auto-sync.</span>
+                </div>
+              )}
+              {!kgotlaStatus.cloudinaryConfigured && (
+                <div className="flex gap-2 rounded-md bg-amber-50 border border-amber-100 p-3 text-xs text-amber-700">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  <span>Set <strong>CLOUDINARY_CLOUD_NAME</strong> and <strong>CLOUDINARY_UPLOAD_PRESET</strong> to enable product images.</span>
+                </div>
+              )}
+            </div>
+          ) : <p className="text-sm text-gray-400">Loading…</p>}
+        </CardContent>
+      </Card>
+    </div>
+  );
+
   const SECTION_TITLES: Record<Section, string> = {
     overview: "Overview", products: "Products", orders: "Orders",
-    messages: "Messages", sellers: "Sellers", farm: "Farm Market",
+    messages: "Messages", sellers: "Sellers", farm: "Farm Market", kgotla: "Kgotla Market",
   };
 
   // ── Full layout ───────────────────────────────────────────────────────────────
@@ -1018,6 +1114,7 @@ export default function Admin() {
           {section === "messages" && messagesSection}
           {section === "sellers" && sellersSection}
           {section === "farm" && farmSection}
+          {section === "kgotla" && kgotlaSection}
         </main>
       </div>
     </div>
