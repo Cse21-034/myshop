@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, timestamp, jsonb, index, serial, integer, decimal, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, jsonb, index, serial, integer, decimal, boolean, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
@@ -141,6 +141,46 @@ export const cartItems = pgTable("cart_items", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Product likes — any logged-in user can like a product
+export const productLikes = pgTable(
+  "product_likes",
+  {
+    id:        serial("id").primaryKey(),
+    userId:    varchar("user_id").references(() => users.id).notNull(),
+    productId: integer("product_id").references(() => products.id).notNull(),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (t) => [uniqueIndex("uq_product_likes_user_product").on(t.userId, t.productId)],
+);
+
+// Wishlist items — private saved products per user
+export const wishlistItems = pgTable(
+  "wishlist_items",
+  {
+    id:        serial("id").primaryKey(),
+    userId:    varchar("user_id").references(() => users.id).notNull(),
+    productId: integer("product_id").references(() => products.id).notNull(),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (t) => [uniqueIndex("uq_wishlist_user_product").on(t.userId, t.productId)],
+);
+
+// Product reviews — verified-purchase star ratings with optional text
+export const productReviews = pgTable(
+  "product_reviews",
+  {
+    id:               serial("id").primaryKey(),
+    userId:           varchar("user_id").references(() => users.id).notNull(),
+    productId:        integer("product_id").references(() => products.id).notNull(),
+    rating:           integer("rating").notNull(),   // 1-5
+    title:            varchar("title", { length: 100 }),
+    body:             text("body"),
+    verifiedPurchase: boolean("verified_purchase").default(false),
+    createdAt:        timestamp("created_at").defaultNow(),
+  },
+  (t) => [uniqueIndex("uq_product_reviews_user_product").on(t.userId, t.productId)],
+);
+
 // Contact messages table
 export const contactMessages = pgTable("contact_messages", {
   id: serial("id").primaryKey(),
@@ -221,6 +261,15 @@ export type Order = typeof orders.$inferSelect;
 
 export type InsertOrderItem = typeof orderItems.$inferInsert;
 export type OrderItem = typeof orderItems.$inferSelect;
+
+export type InsertProductLike = typeof productLikes.$inferInsert;
+export type ProductLike = typeof productLikes.$inferSelect;
+
+export type InsertWishlistItem = typeof wishlistItems.$inferInsert;
+export type WishlistItem = typeof wishlistItems.$inferSelect;
+
+export type InsertProductReview = typeof productReviews.$inferInsert;
+export type ProductReview = typeof productReviews.$inferSelect;
 
 export type InsertCartItem = typeof cartItems.$inferInsert;
 export type CartItem = typeof cartItems.$inferSelect;

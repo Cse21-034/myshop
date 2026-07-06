@@ -3,9 +3,9 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { isAuthenticated } from "./googleAuth";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and, count, avg } from "drizzle-orm";
 import { db } from "./db";
-import { contactMessages, products, orders } from "./schema";
+import { contactMessages, products, orders, productLikes, wishlistItems, productReviews, orderItems } from "./schema";
 import { createStripePaymentIntent, initiateOrangeMoneyPayment } from "./payment";
 import { createPayPalOrder, capturePayPalOrder } from "./paypal-service";
 import { sendEmail, otpEmailTemplate, orderConfirmationTemplate, orderStatusUpdateTemplate } from "./email";
@@ -1054,6 +1054,180 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error creating order:", error);
       res.status(500).json({ message: "Failed to create order", code: "CREATE_ORDER_ERROR" });
+    }
+  });
+
+  // ==========================================================================
+  // PRODUCT SOCIAL — LIKES, WISHLIST, REVIEWS
+  // ==========================================================================
+
+  // GET social state for a product (auth optional)
+  app.get("/api/products/:id/social", async (req: Request, res: Response) => {
+    try {
+      const productId = parseInt(req.params.id);
+      const userId = (req.user as any)?.id ?? null;
+
+      const [[likeRow], [reviewRow]] = await Promise.all([
+        db.select({ count: count() }).from(productLikes).where(eq(productLikes.productId, productId)),
+        db.select({ avg: avg(productReviews.rating), count: count() }).from(productReviews).where(eq(productReviews.productId, productId)),
+      ]);
+
+      let liked = false;
+      let wishlisted = false;
+      let canReview = false;
+      let userReview: any = null;
+
+      if (userId) {
+        const [likedRow] = await db.select().from(productLikes).where(and(eq(productLikes.userId, userId), eq(productLikes.productId, productId)));
+        const [wishRow] = await db.select().from(wishlistItems).where(and(eq(wishlistItems.userId, userId), eq(wishlistItems.productId, productId)));
+        const [myReview] = await db.select().from(productReviews).where(and(eq(productReviews.userId, userId), eq(productReviews.productId, productId)));
+
+        liked = !!likedRow;
+        wishlisted = !!wishRow;
+        userReview = myReview ?? null;
+
+        // Verified purchase check
+        const [purchased] = await db.select({ id: orderItems.id })
+          .from(orderItems)
+          .innerJoin(orders, eq(orderItems.orderId, orders.id))
+          .where(and(eq(orders.userId, userId), eq(orderItems.productId, productId)));
+        canReview = !!purchased && !userReview;
+      }
+
+      res.json({
+        likeCount:   likeRow?.count ?? 0,
+        avgRating:   reviewRow?.avg ? parseFloat(String(reviewRow.avg)).toFixed(1) : null,
+        reviewCount: reviewRow?.count ?? 0,
+        liked,
+        wishlisted,
+        canReview,
+        userReview,
+      });
+    } catch (err) {
+      console.error("[Social] GET social failed:", err);
+      res.status(500).json({ message: "Failed to fetch social data" });
+    }
+  });
+
+  // Toggle like
+  app.post("/api/products/:id/like", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const productId = parseInt(req.params.id);
+      const userId    = (req.user as any).id;
+
+      const [existing] = await db.select().from(productLikes).where(and(eq(productLikes.userId, userId), eq(productLikes.productId, productId)));
+
+      if (existing) {
+        await db.delete(productLikes).where(eq(productLikes.id, existing.id));
+      } else {
+        await db.insert(productLikes).values({ userId, productId });
+      }
+
+      const [{ count: likeCount }] = await db.select({ count: count() }).from(productLikes).where(eq(productLikes.productId, productId));
+      res.json({ liked: !existing, count: likeCount });
+    } catch (err) {
+      console.error("[Social] Like toggle failed:", err);
+      res.status(500).json({ message: "Failed to toggle like" });
+    }
+  });
+
+  // Toggle wishlist
+  app.post("/api/products/:id/wishlist", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const productId = parseInt(req.params.id);
+      const userId    = (req.user as any).id;
+
+      const [existing] = await db.select().from(wishlistItems).where(and(eq(wishlistItems.userId, userId), eq(wishlistItems.productId, productId)));
+
+      if (existing) {
+        await db.delete(wishlistItems).where(eq(wishlistItems.id, existing.id));
+        res.json({ saved: false });
+      } else {
+        await db.insert(wishlistItems).values({ userId, productId });
+        res.json({ saved: true });
+      }
+    } catch (err) {
+      console.error("[Social] Wishlist toggle failed:", err);
+      res.status(500).json({ message: "Failed to toggle wishlist" });
+    }
+  });
+
+  // Get user's wishlist
+  app.get("/api/wishlist", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.user as any).id;
+      const rows = await db
+        .select({ item: wishlistItems, product: products })
+        .from(wishlistItems)
+        .innerJoin(products, eq(wishlistItems.productId, products.id))
+        .where(eq(wishlistItems.userId, userId))
+        .orderBy(wishlistItems.createdAt);
+      res.json(rows.map((r) => ({ ...r.product, wishlistId: r.item.id, savedAt: r.item.createdAt })));
+    } catch (err) {
+      console.error("[Social] Wishlist fetch failed:", err);
+      res.status(500).json({ message: "Failed to fetch wishlist" });
+    }
+  });
+
+  // Get reviews for a product
+  app.get("/api/products/:id/reviews", async (req: Request, res: Response) => {
+    try {
+      const productId = parseInt(req.params.id);
+      const rows = await db
+        .select({
+          review: productReviews,
+          firstName: users.firstName,
+          lastName:  users.lastName,
+        })
+        .from(productReviews)
+        .innerJoin(users, eq(productReviews.userId, users.id))
+        .where(eq(productReviews.productId, productId))
+        .orderBy(productReviews.createdAt);
+
+      res.json(rows.map((r) => ({
+        ...r.review,
+        authorName: `${r.firstName ?? ""} ${r.lastName ?? ""}`.trim() || "Anonymous",
+      })));
+    } catch (err) {
+      console.error("[Social] Reviews fetch failed:", err);
+      res.status(500).json({ message: "Failed to fetch reviews" });
+    }
+  });
+
+  // Submit or update a review (verified purchase required)
+  app.post("/api/products/:id/reviews", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const productId = parseInt(req.params.id);
+      const userId    = (req.user as any).id;
+      const { rating, title, body } = req.body;
+
+      if (!rating || rating < 1 || rating > 5) {
+        return res.status(400).json({ message: "Rating must be between 1 and 5" });
+      }
+
+      // Verified purchase check
+      const [purchased] = await db.select({ id: orderItems.id })
+        .from(orderItems)
+        .innerJoin(orders, eq(orderItems.orderId, orders.id))
+        .where(and(eq(orders.userId, userId), eq(orderItems.productId, productId)));
+
+      const [existing] = await db.select().from(productReviews).where(and(eq(productReviews.userId, userId), eq(productReviews.productId, productId)));
+
+      if (existing) {
+        const [updated] = await db.update(productReviews)
+          .set({ rating, title: title || null, body: body || null })
+          .where(eq(productReviews.id, existing.id))
+          .returning();
+        return res.json(updated);
+      }
+
+      const [created] = await db.insert(productReviews)
+        .values({ userId, productId, rating, title: title || null, body: body || null, verifiedPurchase: !!purchased })
+        .returning();
+      res.status(201).json(created);
+    } catch (err) {
+      console.error("[Social] Review submit failed:", err);
+      res.status(500).json({ message: "Failed to submit review" });
     }
   });
 

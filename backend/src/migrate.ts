@@ -56,6 +56,33 @@ async function migrate() {
     // Order tracking
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_number varchar`,
 
+    // Product social features
+    `CREATE TABLE IF NOT EXISTS product_likes (
+      id serial PRIMARY KEY,
+      user_id varchar NOT NULL REFERENCES users(id),
+      product_id integer NOT NULL REFERENCES products(id),
+      created_at timestamp DEFAULT now(),
+      UNIQUE(user_id, product_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS wishlist_items (
+      id serial PRIMARY KEY,
+      user_id varchar NOT NULL REFERENCES users(id),
+      product_id integer NOT NULL REFERENCES products(id),
+      created_at timestamp DEFAULT now(),
+      UNIQUE(user_id, product_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS product_reviews (
+      id serial PRIMARY KEY,
+      user_id varchar NOT NULL REFERENCES users(id),
+      product_id integer NOT NULL REFERENCES products(id),
+      rating integer NOT NULL CHECK(rating >= 1 AND rating <= 5),
+      title varchar(100),
+      body text,
+      verified_purchase boolean DEFAULT false,
+      created_at timestamp DEFAULT now(),
+      UNIQUE(user_id, product_id)
+    )`,
+
     // Kgotla marketplace bridge table
     `CREATE TABLE IF NOT EXISTS kgotla_product_map (
       id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
