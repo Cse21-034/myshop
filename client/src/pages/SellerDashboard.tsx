@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getQueryFn, createQueryKey, apiRequest } from "@/lib/queryClient";
 import SellerLayout from "@/components/SellerLayout";
+import CloudinaryLogoUpload from "@/components/CloudinaryLogoUpload";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -296,8 +297,10 @@ export default function SellerDashboard() {
                   <Input className="mt-1" value={profileVal("storeName")} onChange={(e) => setProfileVal("storeName", e.target.value)} placeholder="Your store name" />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600">Logo URL</label>
-                  <Input className="mt-1" value={profileVal("logoUrl")} onChange={(e) => setProfileVal("logoUrl", e.target.value)} placeholder="https://…" />
+                  <CloudinaryLogoUpload
+                    value={profileVal("logoUrl")}
+                    onChange={(url) => setProfileVal("logoUrl", url)}
+                  />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-gray-600">Area / Location</label>
