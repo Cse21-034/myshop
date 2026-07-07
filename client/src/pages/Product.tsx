@@ -512,14 +512,18 @@ export default function ProductPage() {
 
             <Separator className="mb-4 sm:mb-6" />
 
-            <div>
-              <h3 className="font-semibold mb-2 text-sm sm:text-base">Features</h3>
-              <ul className="space-y-1 sm:space-y-2 text-xs sm:text-sm text-gray-700">
-                {["Free shipping on orders over P 1,012.50", "30-day return policy", "Premium materials", "1-year warranty"].map((f) => (
-                  <li key={f} className="flex items-center"><Check className="h-3 w-3 sm:h-4 sm:w-4 text-green-500 mr-2 shrink-0" />{f}</li>
-                ))}
-              </ul>
-            </div>
+            {(product as any).features?.length > 0 && (
+              <div>
+                <h3 className="font-semibold mb-2 text-sm sm:text-base">Features</h3>
+                <ul className="space-y-1 sm:space-y-2 text-xs sm:text-sm text-gray-700">
+                  {((product as any).features as string[]).map((f) => (
+                    <li key={f} className="flex items-center">
+                      <Check className="h-3 w-3 sm:h-4 sm:w-4 text-green-500 mr-2 shrink-0" />{f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* Supplier details */}
             {(product as any).seller && (

@@ -18,7 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import {
   Plus, Edit, Trash2, ArrowLeft, Package,
-  Image as ImageIcon, X, Ruler, Palette,
+  Image as ImageIcon, X, Ruler, Palette, ListChecks,
 } from "lucide-react";
 
 const USD_TO_BWP = 13.5;
@@ -43,6 +43,7 @@ const productSchema = z.object({
   images: z.array(z.string()).default([]),
   sizes: z.array(z.string()).default([]),
   colors: z.array(z.string()).default([]),
+  features: z.array(z.string()).default([]),
   featured: z.boolean().default(false),
   active: z.boolean().default(true),
   depositPercent: z.coerce.number().min(0).max(100).default(0),
@@ -66,6 +67,7 @@ function ProductForm({
 }) {
   const [newSize, setNewSize] = useState("");
   const [newColor, setNewColor] = useState("");
+  const [newFeature, setNewFeature] = useState("");
 
   const form = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
@@ -75,18 +77,20 @@ function ProductForm({
       categoryId: product.categoryId ?? undefined, supplierUrl: product.supplierUrl || "",
       stock: product.stock ?? 0, status: product.status || "active",
       images: product.images || [], sizes: product.sizes || [], colors: product.colors || [],
+      features: product.features || [],
       featured: product.featured ?? false, active: product.active ?? true,
       depositPercent: product.depositPercent ?? 0,
     } : {
       name: "", slug: "", description: "", price: "", originalPrice: "",
       categoryId: undefined, supplierUrl: "", stock: 0, status: "active",
-      images: [], sizes: [], colors: [], featured: false, active: true, depositPercent: 0,
+      images: [], sizes: [], colors: [], features: [], featured: false, active: true, depositPercent: 0,
     },
   });
 
   const watchedImages = form.watch("images");
   const watchedSizes = form.watch("sizes");
   const watchedColors = form.watch("colors");
+  const watchedFeatures = form.watch("features");
   const watchedStock = form.watch("stock");
   const watchedStatus = form.watch("status");
 
@@ -114,6 +118,13 @@ function ProductForm({
     if (!c) return;
     form.setValue("colors", [...(form.getValues("colors") || []), c]);
     setNewColor("");
+  }
+
+  function addFeature() {
+    const f = newFeature.trim();
+    if (!f) return;
+    form.setValue("features", [...(form.getValues("features") || []), f]);
+    setNewFeature("");
   }
 
   return (
@@ -210,6 +221,38 @@ function ProductForm({
                     </Badge>
                   ))}
                 </div>
+              </div>
+            </div>
+
+            {/* Product Features */}
+            <div className="space-y-3">
+              <FormLabel className="flex items-center gap-2"><ListChecks className="h-4 w-4" />Product Features</FormLabel>
+              <p className="text-xs text-gray-500">Add specific features customers should know — e.g. "Free delivery", "1-year warranty", "Handmade", "Organic certified".</p>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="e.g. Free delivery on orders over P500"
+                  value={newFeature}
+                  onChange={e => setNewFeature(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addFeature())}
+                />
+                <Button type="button" variant="outline" size="sm" onClick={addFeature}>Add</Button>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                {(watchedFeatures || []).map((f, i) => (
+                  <div key={i} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 text-sm">
+                    <span className="text-gray-700">{f}</span>
+                    <button
+                      type="button"
+                      onClick={() => form.setValue("features", (watchedFeatures || []).filter((_, j) => j !== i))}
+                      className="text-gray-300 hover:text-red-400 ml-2"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+                {(watchedFeatures || []).length === 0 && (
+                  <p className="text-xs text-gray-400 italic">No features added yet.</p>
+                )}
               </div>
             </div>
 

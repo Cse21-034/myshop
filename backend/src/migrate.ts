@@ -41,6 +41,7 @@ async function migrate() {
       created_at timestamp DEFAULT now(),
       updated_at timestamp DEFAULT now()
     )`,
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS features jsonb DEFAULT '[]'`,
     `ALTER TABLE sellers ADD COLUMN IF NOT EXISTS location varchar(255)`,
     `ALTER TABLE sellers ADD COLUMN IF NOT EXISTS year_founded integer`,
     `ALTER TABLE sellers ADD COLUMN IF NOT EXISTS response_time varchar(100)`,
