@@ -11,7 +11,7 @@ export default function About() {
 
       {/* Hero Section */}
       <section className="py-8 md:py-16 bg-white">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-[5px] sm:px-4">
           <div className="max-w-4xl mx-auto text-center">
             <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold text-primary mb-4 md:mb-6">About Fountstream</h1>
             <p className="text-base md:text-xl text-gray-600 leading-relaxed px-2">
@@ -25,7 +25,7 @@ export default function About() {
 
       {/* Story Section */}
       <section className="py-8 md:py-16 bg-gray-50">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-[5px] sm:px-4">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-12 items-center">
             <div className="order-2 lg:order-1">
               <h2 className="text-2xl md:text-3xl font-bold text-primary mb-4 md:mb-6">Our Story</h2>
@@ -59,7 +59,7 @@ export default function About() {
 
       {/* Stats Section */}
       <section className="py-8 md:py-16 bg-white">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-[5px] sm:px-4">
           <h2 className="text-2xl md:text-3xl font-bold text-center text-primary mb-8 md:mb-12">By the Numbers</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8">
             <div className="text-center">
@@ -84,7 +84,7 @@ export default function About() {
 
       {/* Values Section */}
       <section className="py-8 md:py-16 bg-gray-50">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-[5px] sm:px-4">
           <h2 className="text-2xl md:text-3xl font-bold text-center text-primary mb-8 md:mb-12">Our Values</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
             <Card className="h-full">
@@ -131,7 +131,7 @@ export default function About() {
 
       {/* Team Section */}
       <section className="py-8 md:py-16 bg-white">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-[5px] sm:px-4">
           <h2 className="text-2xl md:text-3xl font-bold text-center text-primary mb-8 md:mb-12">Meet Our Team</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8 max-w-4xl mx-auto">
             <div className="text-center">
@@ -181,7 +181,7 @@ export default function About() {
 
       {/* Mission Statement */}
       <section className="py-8 md:py-16 bg-primary text-white">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-[5px] sm:px-4">
           <div className="max-w-4xl mx-auto text-center">
             <div className="w-16 h-16 md:w-20 md:h-20 bg-secondary rounded-full flex items-center justify-center mx-auto mb-6 md:mb-8">
               <Award className="h-8 w-8 md:h-10 md:w-10 text-white" />

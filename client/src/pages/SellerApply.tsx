@@ -65,7 +65,7 @@ export default function SellerApply() {
     return (
       <div className="min-h-screen flex flex-col">
         <Header />
-        <main className="flex-grow container mx-auto px-4 py-16 max-w-lg text-center">
+        <main className="flex-grow container mx-auto px-[5px] sm:px-4 py-16 max-w-lg text-center">
           {existing.status === "approved" ? (
             <>
               <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
@@ -95,7 +95,7 @@ export default function SellerApply() {
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
-      <main className="flex-grow container mx-auto px-4 py-12 max-w-2xl">
+      <main className="flex-grow container mx-auto px-[5px] sm:px-4 py-12 max-w-2xl">
         <div className="flex items-center gap-3 mb-8">
           <Store className="h-8 w-8 text-primary" />
           <div>

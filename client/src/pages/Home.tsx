@@ -30,7 +30,7 @@ export default function Home() {
 
       {/* Welcome Section */}
       <section className="bg-gradient-to-r from-primary to-gray-800 text-white py-8 sm:py-12">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-[5px] sm:px-4">
           <div className="max-w-4xl mx-auto text-center">
             <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold mb-3 sm:mb-4 leading-tight">
               Welcome back, {user?.firstName || 'Fashion Lover'}!
@@ -85,7 +85,7 @@ export default function Home() {
 
       {/* Category Grid */}
       <section className="py-12 sm:py-16 bg-white">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-[5px] sm:px-4">
           <h2 className="text-2xl sm:text-3xl font-bold text-center mb-8 sm:mb-12 text-primary">
             Shop by Category
           </h2>
@@ -114,7 +114,7 @@ export default function Home() {
 
       {/* Featured Products */}
       <section className="py-12 sm:py-16 bg-gray-50">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-[5px] sm:px-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 sm:mb-12 space-y-4 sm:space-y-0">
             <h2 className="text-2xl sm:text-3xl font-bold text-primary">Featured Products</h2>
             <Button variant="outline" className="self-start sm:self-auto text-sm sm:text-base h-9 sm:h-10" asChild>
@@ -146,7 +146,7 @@ export default function Home() {
 
       {/* Special Offers */}
       <section className="py-12 sm:py-16 bg-white">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-[5px] sm:px-4">
           <div className="bg-gradient-to-r from-secondary to-yellow-600 rounded-2xl p-6 sm:p-8 md:p-12 text-white text-center">
             <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3 sm:mb-4 leading-tight">
               Special Offer
