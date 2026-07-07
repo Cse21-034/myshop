@@ -145,6 +145,52 @@ export default function SellerDashboard() {
   const recentOrders = stats?.recentOrders ?? [];
   const totalRevenueBWP = parseFloat(stats?.totalRevenue ?? "0") * USD_TO_BWP;
 
+  // Pending / rejected guard
+  if (s && s.status === "pending") {
+    return (
+      <SellerLayout title="Application Under Review">
+        {() => (
+          <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4 space-y-4">
+            <div className="w-16 h-16 rounded-2xl bg-amber-100 flex items-center justify-center mb-2">
+              <Store className="h-8 w-8 text-amber-600" />
+            </div>
+            <h2 className="text-xl font-bold text-gray-900">Your application is under review</h2>
+            <p className="text-gray-500 max-w-sm text-sm leading-relaxed">
+              Our team is reviewing your seller application. You'll receive an email at the address you registered with once a decision has been made — usually within 1–2 business days.
+            </p>
+            <div className="mt-2 px-4 py-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-xs font-medium">
+              Status: Pending review
+            </div>
+          </div>
+        )}
+      </SellerLayout>
+    );
+  }
+
+  if (s && s.status === "rejected") {
+    return (
+      <SellerLayout title="Application Not Approved">
+        {() => (
+          <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4 space-y-4">
+            <div className="w-16 h-16 rounded-2xl bg-red-100 flex items-center justify-center mb-2">
+              <Store className="h-8 w-8 text-red-500" />
+            </div>
+            <h2 className="text-xl font-bold text-gray-900">Application not approved</h2>
+            <p className="text-gray-500 max-w-sm text-sm leading-relaxed">
+              Unfortunately your seller application was not approved at this time. Please contact our support team if you believe this is a mistake or if you'd like to reapply.
+            </p>
+            <a
+              href="mailto:support@fountstream.com"
+              className="mt-2 text-sm text-primary underline underline-offset-2"
+            >
+              Contact support
+            </a>
+          </div>
+        )}
+      </SellerLayout>
+    );
+  }
+
   return (
     <SellerLayout
       title="Overview"

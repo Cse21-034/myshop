@@ -12,6 +12,7 @@ import { useCart } from "@/context/CartContext";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
+import { useChatSocket } from "@/hooks/useChatSocket";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ProductCard from "@/components/ProductCard";
@@ -81,7 +82,13 @@ function SupplierCard({ seller }: { seller: any }) {
         )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="font-semibold text-sm text-gray-900 truncate">{seller.storeName}</p>
+            {seller.userId ? (
+              <Link href={`/store/${seller.userId}`} className="font-semibold text-sm text-gray-900 truncate hover:text-primary hover:underline underline-offset-2 transition-colors">
+                {seller.storeName}
+              </Link>
+            ) : (
+              <p className="font-semibold text-sm text-gray-900 truncate">{seller.storeName}</p>
+            )}
             {seller.highlyRated && (
               <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
                 <Award className="h-3 w-3" />Highly Rated
@@ -301,8 +308,9 @@ export default function ProductPage() {
     queryKey: ["chat-messages", chatId],
     queryFn: () => fetch(`${backendURL}/api/chats/${chatId}/messages`, { credentials: "include" }).then(r => r.json()),
     enabled: !!chatId && chatOpen,
-    refetchInterval: chatOpen ? 4000 : false,
   });
+
+  useChatSocket(chatOpen ? chatId : null, () => refetchChat());
 
   useEffect(() => {
     if (chatData?.messages?.length) {

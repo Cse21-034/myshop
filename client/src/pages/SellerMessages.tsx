@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getQueryFn, createQueryKey, apiRequest } from "@/lib/queryClient";
 import SellerLayout from "@/components/SellerLayout";
 import { Badge } from "@/components/ui/badge";
 import { MessageSquare, Send, ArrowLeft } from "lucide-react";
+import { useChatSocket } from "@/hooks/useChatSocket";
 
 const backendURL = (import.meta.env.VITE_API_BASE_URL || "https://myshop-test-backend.onrender.com").replace(/\/$/, "");
 
@@ -23,8 +24,14 @@ export default function SellerMessages() {
     queryKey: ["seller-chat-thread", selectedChatId],
     queryFn: () => fetch(`${backendURL}/api/chats/${selectedChatId}/messages`, { credentials: "include" }).then(r => r.json()),
     enabled: !!selectedChatId,
-    refetchInterval: selectedChatId ? 4000 : false,
   });
+
+  const onSocketMessage = useCallback(() => {
+    refetchThread();
+    queryClient.invalidateQueries({ queryKey: createQueryKey("/api/seller/chats") });
+  }, [refetchThread, queryClient]);
+
+  useChatSocket(selectedChatId, onSocketMessage);
 
   useEffect(() => {
     if (thread?.messages?.length) bottomRef.current?.scrollIntoView({ behavior: "smooth" });

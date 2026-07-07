@@ -2,6 +2,8 @@
 import express from "express";
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
+import type { IncomingMessage } from "http";
+import { WebSocketServer, WebSocket as WsSocket } from "ws";
 import { storage } from "./storage";
 import { isAuthenticated } from "./googleAuth";
 import { eq, sql, and, count, avg, desc, gte, lt } from "drizzle-orm";
@@ -38,6 +40,17 @@ const contactRateLimit = new Map<string, number[]>();
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const csrfProtection = csurf();
+
+  // ── WebSocket chat room map ───────────────────────────────────────────────────
+  const chatSubscribers = new Map<number, Set<WsSocket>>();
+  function broadcastToChat(chatId: number, payload: object) {
+    const subs = chatSubscribers.get(chatId);
+    if (!subs?.size) return;
+    const json = JSON.stringify(payload);
+    for (const ws of subs) {
+      if (ws.readyState === WsSocket.OPEN) ws.send(json);
+    }
+  }
 
   // ── ERM: Sync on startup (non-blocking) ──────────────────────────────────
   if (process.env.ERM_AUTO_SYNC_ON_START === "true") {
@@ -1667,11 +1680,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!chat) return res.status(404).json({ message: "Chat not found" });
       if (chat.buyerId !== userId && chat.sellerId !== userId) return res.status(403).json({ message: "Access denied" });
 
+      const [sender] = await db.select({ firstName: users.firstName, lastName: users.lastName }).from(users).where(eq(users.id, userId)).limit(1);
       const [msg] = await db.insert(chatMessages).values({ chatId, senderId: userId, content: content.trim() }).returning();
+
+      // Broadcast to all WebSocket subscribers in this chat room
+      broadcastToChat(chatId, {
+        type: "message",
+        chatId,
+        message: { ...msg, senderName: `${sender?.firstName ?? ""} ${sender?.lastName ?? ""}`.trim() },
+      });
 
       // Notify the other party
       const recipientId = userId === chat.buyerId ? chat.sellerId : chat.buyerId;
-      const [sender] = await db.select({ firstName: users.firstName }).from(users).where(eq(users.id, userId)).limit(1);
       db.insert(notifications).values({
         userId: recipientId, type: "chat",
         title: `New message from ${sender?.firstName ?? "someone"}`,
@@ -2397,6 +2417,96 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }, 15 * 60 * 1000);
 
+  // ==========================================================================
+  // PUBLIC SELLER STOREFRONT
+  // ==========================================================================
+
+  app.get("/api/stores/:sellerId", async (req: Request, res: Response) => {
+    try {
+      const { sellerId } = req.params;
+      const [seller] = await db.select().from(sellers).where(eq(sellers.userId, sellerId)).limit(1);
+      if (!seller || seller.status !== "approved") return res.status(404).json({ message: "Store not found" });
+
+      const storeProducts = await db.select().from(products)
+        .where(and(eq(products.sellerId, sellerId), eq(products.active, true)))
+        .orderBy(desc(products.createdAt))
+        .limit(60);
+
+      const [ratingRow] = await db
+        .select({ avg: avg(productReviews.rating), cnt: count(productReviews.id) })
+        .from(productReviews)
+        .innerJoin(products, eq(products.id, productReviews.productId))
+        .where(eq(products.sellerId, sellerId));
+
+      res.json({
+        seller,
+        products: storeProducts,
+        avgRating: ratingRow?.avg ? parseFloat(ratingRow.avg as string).toFixed(1) : null,
+        totalReviews: ratingRow?.cnt ?? 0,
+      });
+    } catch (err) {
+      console.error("[Store]", err);
+      res.status(500).json({ message: "Failed to load store" });
+    }
+  });
+
+  // ==========================================================================
+  // SEO — SITEMAP + ROBOTS
+  // ==========================================================================
+
+  app.get("/sitemap.xml", async (req: Request, res: Response) => {
+    try {
+      const base = process.env.FRONTEND_URL?.replace(/\/$/, "") ?? "https://fountstream.com";
+
+      const [allProducts, allSellers, allCategories] = await Promise.all([
+        db.select({ id: products.id, updatedAt: products.updatedAt }).from(products)
+          .where(and(eq(products.active, true))).limit(5000),
+        db.select({ userId: sellers.userId, updatedAt: sellers.updatedAt }).from(sellers)
+          .where(eq(sellers.status, "approved")),
+        db.select({ slug: categories.slug }).from(categories),
+      ]);
+
+      const staticUrls = [
+        "/", "/shop", "/about", "/contact", "/farm-market", "/terms", "/privacy",
+      ].map(path => `<url><loc>${base}${path}</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>`).join("\n");
+
+      const productUrls = allProducts.map(p =>
+        `<url><loc>${base}/product/${p.id}</loc><lastmod>${p.updatedAt?.toISOString().split("T")[0] ?? ""}</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>`
+      ).join("\n");
+
+      const sellerUrls = allSellers.map(s =>
+        `<url><loc>${base}/store/${s.userId}</loc><changefreq>weekly</changefreq><priority>0.5</priority></url>`
+      ).join("\n");
+
+      const categoryUrls = allCategories.map(c =>
+        `<url><loc>${base}/shop?category=${c.slug}</loc><changefreq>daily</changefreq><priority>0.7</priority></url>`
+      ).join("\n");
+
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${staticUrls}
+${categoryUrls}
+${productUrls}
+${sellerUrls}
+</urlset>`.trim();
+
+      res.setHeader("Content-Type", "application/xml");
+      res.setHeader("Cache-Control", "public, max-age=3600");
+      res.send(xml);
+    } catch (err) {
+      console.error("[Sitemap]", err);
+      res.status(500).send("Failed to generate sitemap");
+    }
+  });
+
+  app.get("/robots.txt", (_req: Request, res: Response) => {
+    const base = process.env.FRONTEND_URL?.replace(/\/$/, "") ?? "https://fountstream.com";
+    res.setHeader("Content-Type", "text/plain");
+    res.send(
+      `User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /seller/\nDisallow: /profile\nDisallow: /orders\nDisallow: /cart\nDisallow: /checkout\nSitemap: ${base}/sitemap.xml`
+    );
+  });
+
   // ── PayGate urlencoded body parser (for callback + return POSTs from PayGate) ──
   app.use("/api/paygate", express.urlencoded({ extended: false }));
 
@@ -2618,5 +2728,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   const httpServer = createServer(app);
+
+  // ==========================================================================
+  // WEBSOCKET SERVER — real-time chat
+  // ==========================================================================
+  const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+
+  wss.on("connection", async (ws: WsSocket, req: IncomingMessage) => {
+    const urlObj = new URL(req.url ?? "/", "http://localhost");
+    const token  = urlObj.searchParams.get("token");
+
+    // Verify JWT
+    let userId: string | null = null;
+    if (token) {
+      try {
+        const jwtModule = await import("jsonwebtoken");
+        const decoded = jwtModule.default.verify(token, process.env.JWT_SECRET!) as any;
+        userId = decoded?.id ?? null;
+      } catch {}
+    }
+
+    if (!userId) { ws.close(4001, "Unauthorized"); return; }
+
+    let subscribedChatId: number | null = null;
+
+    ws.on("message", async (data: Buffer) => {
+      try {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === "subscribe" && msg.chatId) {
+          const chatId = parseInt(msg.chatId);
+          if (isNaN(chatId)) return;
+
+          // Verify user is a participant in this chat
+          const [chat] = await db.select().from(productChats)
+            .where(eq(productChats.id, chatId)).limit(1);
+          if (!chat || (chat.buyerId !== userId && chat.sellerId !== userId)) {
+            ws.send(JSON.stringify({ type: "error", message: "Access denied" }));
+            return;
+          }
+
+          // Unsubscribe from previous room
+          if (subscribedChatId !== null) {
+            chatSubscribers.get(subscribedChatId)?.delete(ws);
+          }
+
+          // Subscribe to new room
+          subscribedChatId = chatId;
+          if (!chatSubscribers.has(chatId)) chatSubscribers.set(chatId, new Set());
+          chatSubscribers.get(chatId)!.add(ws);
+          ws.send(JSON.stringify({ type: "subscribed", chatId }));
+        }
+      } catch {}
+    });
+
+    ws.on("close", () => {
+      if (subscribedChatId !== null) {
+        chatSubscribers.get(subscribedChatId)?.delete(ws);
+      }
+    });
+
+    ws.on("error", () => {
+      if (subscribedChatId !== null) {
+        chatSubscribers.get(subscribedChatId)?.delete(ws);
+      }
+    });
+  });
+
   return httpServer;
 }

@@ -50,6 +50,7 @@ import SellerMessages from "@/pages/SellerMessages";
 import Terms from "@/pages/Terms";
 import Privacy from "@/pages/Privacy";
 import PaymentResult from "@/pages/PaymentResult";
+import SellerStorefront from "@/pages/SellerStorefront";
 
 // Professional Loading Screen with consistent colors and mobile optimization
 function LoadingScreen() {
@@ -139,6 +140,7 @@ function Router() {
       <Route path="/terms" component={Terms} />
       <Route path="/privacy" component={Privacy} />
       <Route path="/payment-result" component={PaymentResult} />
+      <Route path="/store/:id" component={SellerStorefront} />
       <Route component={NotFound} />
     </Switch>
   );
