@@ -229,6 +229,7 @@ export class DatabaseStorage implements IStorage {
         updatedAt: products.updatedAt,
         sizes: products.sizes,
         colors: products.colors,
+        features: products.features,
         stock: products.stock,
         entityType: products.entityType,
         entityDetails: products.entityDetails,
