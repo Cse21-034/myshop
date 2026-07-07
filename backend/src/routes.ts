@@ -283,8 +283,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const seller = await storage.getSellerByUserId((req.user as any).id);
       if (!seller) return res.status(404).json({ message: "No seller profile found." });
       if (seller.status !== "approved") return res.status(403).json({ message: "Only approved sellers can update their profile." });
-      const { storeName, description, phone, address, logoUrl } = req.body;
-      const updated = await storage.updateSeller(seller.id, { storeName, description, phone, address, logoUrl });
+      const { storeName, description, phone, address, logoUrl, location, yearFounded, responseTime, onTimeDeliveryRate, services, tradingHours } = req.body;
+      const updated = await storage.updateSeller(seller.id, { storeName, description, phone, address, logoUrl, location, yearFounded, responseTime, onTimeDeliveryRate, services, tradingHours });
       res.json(updated);
     } catch (err) {
       res.status(500).json({ message: "Failed to update profile." });
@@ -839,10 +839,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!product) {
         return res.status(404).json({ message: "Product not found", code: "PRODUCT_NOT_FOUND" });
       }
-      res.json(product);
+      // Attach seller profile if product has a sellerId
+      let seller = null;
+      if (product.sellerId) {
+        const sellerRow = await storage.getSellerByUserId(product.sellerId);
+        if (sellerRow) {
+          const avgRatingRow = await db
+            .select({ avg: avg(productReviews.rating), cnt: count(productReviews.id) })
+            .from(productReviews)
+            .innerJoin(products, eq(products.id, productReviews.productId))
+            .where(eq(products.sellerId, product.sellerId));
+          const avgR = parseFloat(avgRatingRow[0]?.avg ?? "0");
+          seller = {
+            id: sellerRow.id,
+            storeName: sellerRow.storeName,
+            description: sellerRow.description,
+            logoUrl: sellerRow.logoUrl,
+            location: sellerRow.location,
+            yearFounded: sellerRow.yearFounded,
+            responseTime: sellerRow.responseTime,
+            onTimeDeliveryRate: sellerRow.onTimeDeliveryRate,
+            services: sellerRow.services,
+            tradingHours: sellerRow.tradingHours,
+            avgRating: isNaN(avgR) ? 0 : avgR,
+            reviewCount: Number(avgRatingRow[0]?.cnt ?? 0),
+            highlyRated: avgR >= 4.0 && Number(avgRatingRow[0]?.cnt ?? 0) >= 3,
+          };
+        }
+      }
+      res.json({ ...product, seller });
     } catch (error) {
       console.error("Error fetching product:", error);
       res.status(500).json({ message: "Failed to fetch product", code: "FETCH_PRODUCT_ERROR" });
+    }
+  });
+
+  // Public seller profile
+  app.get("/api/sellers/:id", async (req: Request, res: Response) => {
+    try {
+      const sellerRow = await storage.getSellerById(parseInt(req.params.id));
+      if (!sellerRow || sellerRow.status !== "approved") return res.status(404).json({ message: "Seller not found" });
+      const avgRatingRow = await db
+        .select({ avg: avg(productReviews.rating), cnt: count(productReviews.id) })
+        .from(productReviews)
+        .innerJoin(products, eq(products.id, productReviews.productId))
+        .where(eq(products.sellerId, sellerRow.userId));
+      const avgR = parseFloat(avgRatingRow[0]?.avg ?? "0");
+      res.json({
+        ...sellerRow,
+        avgRating: isNaN(avgR) ? 0 : avgR,
+        reviewCount: Number(avgRatingRow[0]?.cnt ?? 0),
+        highlyRated: avgR >= 4.0 && Number(avgRatingRow[0]?.cnt ?? 0) >= 3,
+      });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch seller" });
     }
   });
 

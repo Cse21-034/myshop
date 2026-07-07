@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Star, Check, ArrowLeft, Heart, Bookmark, ShieldCheck, Bell, Share2, MessageCircle } from "lucide-react";
+import { Star, Check, ArrowLeft, Heart, Bookmark, ShieldCheck, Bell, Share2, MessageCircle, MapPin, Clock, CalendarDays, Truck, Wrench, Award } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -59,6 +59,104 @@ function StarPicker({ value, onChange }: { value: number; onChange: (n: number) 
           <Star className={`h-7 w-7 transition-colors ${i <= (hovered || value) ? "text-yellow-400 fill-current" : "text-gray-200 fill-current"}`} />
         </button>
       ))}
+    </div>
+  );
+}
+
+// ─── Supplier card ────────────────────────────────────────────────────────────
+
+function SupplierCard({ seller }: { seller: any }) {
+  if (!seller) return null;
+  return (
+    <div className="mt-6 border border-gray-100 rounded-xl bg-white shadow-sm overflow-hidden">
+      {/* Header row */}
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 bg-gray-50/60">
+        {seller.logoUrl ? (
+          <img src={seller.logoUrl} alt={seller.storeName} className="w-12 h-12 rounded-lg object-cover border border-gray-100" />
+        ) : (
+          <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold text-lg">
+            {seller.storeName?.[0] ?? "S"}
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-semibold text-sm text-gray-900 truncate">{seller.storeName}</p>
+            {seller.highlyRated && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                <Award className="h-3 w-3" />Highly Rated
+              </span>
+            )}
+          </div>
+          {seller.location && (
+            <p className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
+              <MapPin className="h-3 w-3 shrink-0" />{seller.location}
+            </p>
+          )}
+        </div>
+        {seller.reviewCount > 0 && (
+          <div className="text-right shrink-0">
+            <div className="flex items-center gap-1 justify-end">
+              <Star className="h-3.5 w-3.5 text-yellow-400 fill-current" />
+              <span className="text-sm font-bold text-gray-900">{seller.avgRating.toFixed(1)}</span>
+            </div>
+            <p className="text-[10px] text-gray-400">{seller.reviewCount} reviews</p>
+          </div>
+        )}
+      </div>
+
+      {/* Detail grid */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 px-4 py-3">
+        {seller.responseTime && (
+          <div className="flex items-start gap-2">
+            <Clock className="h-3.5 w-3.5 text-gray-400 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Response time</p>
+              <p className="text-xs font-semibold text-gray-700">{seller.responseTime}</p>
+            </div>
+          </div>
+        )}
+        {seller.yearFounded && (
+          <div className="flex items-start gap-2">
+            <CalendarDays className="h-3.5 w-3.5 text-gray-400 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Year founded</p>
+              <p className="text-xs font-semibold text-gray-700">{seller.yearFounded}</p>
+            </div>
+          </div>
+        )}
+        {seller.onTimeDeliveryRate != null && (
+          <div className="flex items-start gap-2">
+            <Truck className="h-3.5 w-3.5 text-gray-400 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">On-time delivery</p>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <div className="flex-1 bg-gray-100 rounded-full h-1.5 w-16">
+                  <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, seller.onTimeDeliveryRate)}%` }} />
+                </div>
+                <p className="text-xs font-bold text-emerald-600">{seller.onTimeDeliveryRate}%</p>
+              </div>
+            </div>
+          </div>
+        )}
+        {seller.tradingHours && (
+          <div className="flex items-start gap-2">
+            <Clock className="h-3.5 w-3.5 text-gray-400 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Trading hours</p>
+              <p className="text-xs font-semibold text-gray-700">{seller.tradingHours}</p>
+            </div>
+          </div>
+        )}
+        {seller.services && (
+          <div className="col-span-2 flex items-start gap-2">
+            <Wrench className="h-3.5 w-3.5 text-gray-400 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Services</p>
+              <p className="text-xs text-gray-700 leading-relaxed">{seller.services}</p>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -422,6 +520,17 @@ export default function ProductPage() {
                 ))}
               </ul>
             </div>
+
+            {/* Supplier details */}
+            {(product as any).seller && (
+              <>
+                <Separator className="mt-4 sm:mt-6" />
+                <div className="mt-4 sm:mt-6">
+                  <h3 className="font-semibold mb-2 text-sm sm:text-base">Sold by</h3>
+                  <SupplierCard seller={(product as any).seller} />
+                </div>
+              </>
+            )}
           </div>
         </div>
 

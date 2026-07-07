@@ -1,12 +1,15 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
-import { getQueryFn, createQueryKey } from "@/lib/queryClient";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getQueryFn, createQueryKey, apiRequest } from "@/lib/queryClient";
 import SellerLayout from "@/components/SellerLayout";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Package, ShoppingCart, DollarSign, Plus, TrendingUp, ArrowRight } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { Package, ShoppingCart, DollarSign, Plus, TrendingUp, ArrowRight, Store } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area,
@@ -54,6 +57,8 @@ function StatCard({ label, value, sub, icon: Icon, color }: {
 
 export default function SellerDashboard() {
   const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: createQueryKey("/api/seller/stats"),
@@ -63,6 +68,37 @@ export default function SellerDashboard() {
   const { data: allOrders = [] } = useQuery({
     queryKey: createQueryKey("/api/seller/orders"),
     queryFn: getQueryFn({ on401: "returnNull" }),
+  });
+
+  const { data: sellerMe } = useQuery({
+    queryKey: createQueryKey("/api/seller/me"),
+    queryFn: getQueryFn({ on401: "returnNull" }),
+  });
+
+  const s = sellerMe as any;
+  const [profile, setProfile] = useState<Record<string, string>>({});
+  const profileVal = (key: string) => (key in profile ? profile[key] : (s?.[key] ?? ""));
+  const setProfileVal = (key: string, val: string) => setProfile((p) => ({ ...p, [key]: val }));
+
+  const profileMutation = useMutation({
+    mutationFn: () => apiRequest("PUT", "/api/seller/me", {
+      storeName: profileVal("storeName"),
+      description: profileVal("description"),
+      phone: profileVal("phone"),
+      logoUrl: profileVal("logoUrl"),
+      location: profileVal("location"),
+      yearFounded: profileVal("yearFounded") ? parseInt(profileVal("yearFounded")) : undefined,
+      responseTime: profileVal("responseTime"),
+      onTimeDeliveryRate: profileVal("onTimeDeliveryRate") ? parseInt(profileVal("onTimeDeliveryRate")) : undefined,
+      services: profileVal("services"),
+      tradingHours: profileVal("tradingHours"),
+    }),
+    onSuccess: () => {
+      toast({ title: "Store profile updated!" });
+      queryClient.invalidateQueries({ queryKey: createQueryKey("/api/seller/me") });
+      setProfile({});
+    },
+    onError: () => toast({ title: "Failed to save profile", variant: "destructive" }),
   });
 
   // Revenue by month (last 6 months)
@@ -242,6 +278,63 @@ export default function SellerDashboard() {
                   ))}
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          {/* Store Profile */}
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                <Store className="h-4 w-4 text-emerald-500" />Public Store Profile
+              </CardTitle>
+              <p className="text-xs text-gray-400">This info appears on every product page under "Sold by".</p>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Store name</label>
+                  <Input className="mt-1" value={profileVal("storeName")} onChange={(e) => setProfileVal("storeName", e.target.value)} placeholder="Your store name" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Logo URL</label>
+                  <Input className="mt-1" value={profileVal("logoUrl")} onChange={(e) => setProfileVal("logoUrl", e.target.value)} placeholder="https://…" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Area / Location</label>
+                  <Input className="mt-1" value={profileVal("location")} onChange={(e) => setProfileVal("location", e.target.value)} placeholder="e.g. Gaborone, Botswana" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Year Founded</label>
+                  <Input className="mt-1" type="number" value={profileVal("yearFounded")} onChange={(e) => setProfileVal("yearFounded", e.target.value)} placeholder="e.g. 2015" min={1900} max={new Date().getFullYear()} />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Response Time</label>
+                  <Input className="mt-1" value={profileVal("responseTime")} onChange={(e) => setProfileVal("responseTime", e.target.value)} placeholder="e.g. Within 2 hours" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">On-time Delivery Rate (%)</label>
+                  <Input className="mt-1" type="number" value={profileVal("onTimeDeliveryRate")} onChange={(e) => setProfileVal("onTimeDeliveryRate", e.target.value)} placeholder="e.g. 95" min={0} max={100} />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Trading Hours</label>
+                  <Input className="mt-1" value={profileVal("tradingHours")} onChange={(e) => setProfileVal("tradingHours", e.target.value)} placeholder="e.g. Mon–Fri 8am–5pm, Sat 9am–1pm" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Phone</label>
+                  <Input className="mt-1" value={profileVal("phone")} onChange={(e) => setProfileVal("phone", e.target.value)} placeholder="+267 …" />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-xs font-medium text-gray-600">Services offered</label>
+                  <Input className="mt-1" value={profileVal("services")} onChange={(e) => setProfileVal("services", e.target.value)} placeholder="e.g. Delivery, Custom orders, Bulk pricing, Installation" />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-xs font-medium text-gray-600">Store description</label>
+                  <Textarea className="mt-1" rows={3} value={profileVal("description")} onChange={(e) => setProfileVal("description", e.target.value)} placeholder="Tell customers about your store…" />
+                </div>
+              </div>
+              <Button className="mt-4" disabled={profileMutation.isPending} onClick={() => profileMutation.mutate()}>
+                {profileMutation.isPending ? "Saving…" : "Save Profile"}
+              </Button>
             </CardContent>
           </Card>
         </div>

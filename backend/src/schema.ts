@@ -37,6 +37,12 @@ export const sellers = pgTable("sellers", {
   logoUrl: varchar("logo_url"),
   phone: varchar("phone"),
   address: text("address"),
+  location: varchar("location", { length: 255 }),        // area / city shown on product page
+  yearFounded: integer("year_founded"),
+  responseTime: varchar("response_time", { length: 100 }), // e.g. "Within 2 hours"
+  onTimeDeliveryRate: integer("on_time_delivery_rate"),   // 0–100 %
+  services: text("services"),                             // free-text list of services
+  tradingHours: varchar("trading_hours", { length: 255 }), // e.g. "Mon–Fri 8am–5pm"
   status: varchar("status").default("pending"), // pending | approved | rejected | suspended
   commissionPercent: integer("commission_percent").default(10),
   createdAt: timestamp("created_at").defaultNow(),

@@ -41,6 +41,12 @@ async function migrate() {
       created_at timestamp DEFAULT now(),
       updated_at timestamp DEFAULT now()
     )`,
+    `ALTER TABLE sellers ADD COLUMN IF NOT EXISTS location varchar(255)`,
+    `ALTER TABLE sellers ADD COLUMN IF NOT EXISTS year_founded integer`,
+    `ALTER TABLE sellers ADD COLUMN IF NOT EXISTS response_time varchar(100)`,
+    `ALTER TABLE sellers ADD COLUMN IF NOT EXISTS on_time_delivery_rate integer`,
+    `ALTER TABLE sellers ADD COLUMN IF NOT EXISTS services text`,
+    `ALTER TABLE sellers ADD COLUMN IF NOT EXISTS trading_hours varchar(255)`,
 
     // ERM marketplace bridge table
     `CREATE TABLE IF NOT EXISTS marketplace_product_map (
