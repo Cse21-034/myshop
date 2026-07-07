@@ -85,7 +85,7 @@ export default function Orders() {
   if (!orders || orders.length === 0) return (
     <>
       <Header />
-      <main className="container max-w-5xl mx-auto px-[5px] py-4 sm:px-8 sm:py-8 my-8 bg-white rounded shadow-md min-h-screen">
+      <main className="container max-w-5xl mx-auto px-[10px] py-4 sm:px-8 sm:py-8 my-8 bg-white rounded shadow-md min-h-screen">
         <h1 className="text-2xl font-semibold mb-6">My Orders</h1>
         <p>No orders found.</p>
       </main>
@@ -96,7 +96,7 @@ export default function Orders() {
   return (
     <>
       <Header />
-      <main className="container max-w-5xl mx-auto px-[5px] py-4 sm:px-8 sm:py-8 my-8 bg-white rounded shadow-md min-h-screen">
+      <main className="container max-w-5xl mx-auto px-[10px] py-4 sm:px-8 sm:py-8 my-8 bg-white rounded shadow-md min-h-screen">
         <h1 className="text-2xl font-semibold mb-6">My Orders</h1>
 
         <Table>

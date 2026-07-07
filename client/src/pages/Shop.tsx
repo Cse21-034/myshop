@@ -207,7 +207,7 @@ export default function Shop() {
     <div className="min-h-screen bg-gray-50">
       <Header />
 
-      <div className="container mx-auto px-[5px] sm:px-4 py-4 md:py-8">
+      <div className="container mx-auto px-[10px] sm:px-4 py-4 md:py-8">
         {/* Page Header */}
         <div className="mb-4 md:mb-8">
           <h1 className="text-2xl md:text-3xl font-bold text-primary mb-3 md:mb-4">Shop All Products</h1>

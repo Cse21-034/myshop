@@ -163,7 +163,7 @@ export default function OrderConfirmation() {
     return (
       <div className="min-h-screen flex flex-col">
         <Header />
-        <main className="flex-grow container mx-auto px-[5px] sm:px-4 py-12 text-center">
+        <main className="flex-grow container mx-auto px-[10px] sm:px-4 py-12 text-center">
           <p>Loading order details...</p>
         </main>
         <Footer />
@@ -175,7 +175,7 @@ export default function OrderConfirmation() {
     return (
       <div className="min-h-screen flex flex-col">
         <Header />
-        <main className="flex-grow container mx-auto px-[5px] sm:px-4 py-12 text-center">
+        <main className="flex-grow container mx-auto px-[10px] sm:px-4 py-12 text-center">
           <h1 className="text-3xl font-bold mb-4 text-red-600">Order not found</h1>
           <Button asChild>
             <a href="/shop">Continue Shopping</a>
@@ -189,7 +189,7 @@ export default function OrderConfirmation() {
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
-      <main className="flex-grow container mx-auto px-[5px] sm:px-4 py-12 max-w-3xl">
+      <main className="flex-grow container mx-auto px-[10px] sm:px-4 py-12 max-w-3xl">
         <h1 className="text-3xl font-bold mb-6 text-primary">Order Receipt</h1>
 
         {/* Tracking timeline — shown above the printable receipt */}

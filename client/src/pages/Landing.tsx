@@ -94,7 +94,7 @@ export default function Landing() {
 
       {/* Features Section */}
       <section className="py-12 sm:py-16 bg-white">
-        <div className="container mx-auto px-[5px] sm:px-4">
+        <div className="container mx-auto px-[10px] sm:px-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 md:gap-8">
             <div className="text-center">
               <div className="w-12 h-12 sm:w-16 sm:h-16 bg-secondary rounded-full flex items-center justify-center mx-auto mb-3 sm:mb-4">
@@ -130,7 +130,7 @@ export default function Landing() {
 
       {/* Category Grid */}
       <section className="py-12 sm:py-16 bg-gray-50">
-        <div className="container mx-auto px-[5px] sm:px-4">
+        <div className="container mx-auto px-[10px] sm:px-4">
           <h2 className="text-2xl sm:text-3xl font-bold text-center mb-8 sm:mb-12 text-primary">
             Shop by Category
           </h2>
@@ -175,7 +175,7 @@ export default function Landing() {
         </p>
       ) : featuredProducts.length > 0 && (
         <section className="py-12 sm:py-16 bg-white">
-          <div className="container mx-auto px-[5px] sm:px-4">
+          <div className="container mx-auto px-[10px] sm:px-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 sm:mb-12 space-y-4 sm:space-y-0">
               <h2 className="text-2xl sm:text-3xl font-bold text-primary">Featured Products</h2>
               <Button variant="outline" className="self-start sm:self-auto h-9 sm:h-10 text-sm sm:text-base" asChild>
@@ -196,7 +196,7 @@ export default function Landing() {
 
       {/* Call to Action */}
       <section className="py-12 sm:py-16 bg-primary text-white">
-        <div className="container mx-auto px-[5px] sm:px-4 text-center">
+        <div className="container mx-auto px-[10px] sm:px-4 text-center">
           <h2 className="text-2xl sm:text-3xl font-bold mb-3 sm:mb-4 leading-tight">
             Ready to Start Shopping?
           </h2>

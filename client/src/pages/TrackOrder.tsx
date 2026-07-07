@@ -116,7 +116,7 @@ export default function TrackOrder() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <Header />
-      <main className="flex-grow container mx-auto px-[5px] sm:px-4 py-10 max-w-2xl">
+      <main className="flex-grow container mx-auto px-[10px] sm:px-4 py-10 max-w-2xl">
         <div className="text-center mb-8">
           <div className="w-14 h-14 bg-primary/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <Package className="h-7 w-7 text-primary" />

@@ -321,7 +321,7 @@ export default function ProductPage() {
 
   if (isLoading) return (
     <div className="min-h-screen bg-gray-50"><Header />
-      <div className="container mx-auto px-[5px] sm:px-4 py-8 animate-pulse">
+      <div className="container mx-auto px-[10px] sm:px-4 py-8 animate-pulse">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div><div className="h-96 bg-gray-200 rounded-lg mb-4" /><div className="grid grid-cols-4 gap-2">{[...Array(4)].map((_, i) => <div key={i} className="h-20 bg-gray-200 rounded" />)}</div></div>
           <div className="space-y-4">{[...Array(5)].map((_, i) => <div key={i} className="h-6 bg-gray-200 rounded" />)}</div>
@@ -332,7 +332,7 @@ export default function ProductPage() {
 
   if (!product) return (
     <div className="min-h-screen bg-gray-50"><Header />
-      <div className="container mx-auto px-[5px] sm:px-4 py-8 text-center">
+      <div className="container mx-auto px-[10px] sm:px-4 py-8 text-center">
         <h1 className="text-2xl font-bold mb-4">Product Not Found</h1>
         <Button asChild><Link href="/shop">Back to Shop</Link></Button>
       </div><Footer />
@@ -352,7 +352,7 @@ export default function ProductPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
-      <div className="container mx-auto px-[5px] sm:px-4 py-4 sm:py-8">
+      <div className="container mx-auto px-[10px] sm:px-4 py-4 sm:py-8">
 
         {/* Breadcrumb */}
         <div className="flex items-center space-x-2 text-xs sm:text-sm text-gray-600 mb-4">

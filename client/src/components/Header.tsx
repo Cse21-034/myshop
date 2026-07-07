@@ -114,7 +114,7 @@ export default function Header() {
       </div>
 
       <header className="bg-white shadow-sm sticky top-0 z-50">
-        <nav className="container mx-auto px-[5px] sm:px-4 py-4">
+        <nav className="container mx-auto px-[10px] sm:px-4 py-4">
           <div className="flex items-center justify-between">
             {/* Logo */}
             <Link href="/" className="flex items-center space-x-2">

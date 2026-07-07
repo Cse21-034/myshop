@@ -301,7 +301,7 @@ export default function Checkout() {
     return (
       <div className="min-h-screen bg-gray-50">
         <Header />
-        <div className="container mx-auto px-[5px] sm:px-4 py-16">
+        <div className="container mx-auto px-[10px] sm:px-4 py-16">
           <div className="text-center max-w-md mx-auto">
             <h1 className="text-2xl font-bold text-gray-900 mb-4">Your cart is empty</h1>
             <p className="text-gray-600 mb-6">Add some items to your cart before checkout.</p>
@@ -329,7 +329,7 @@ export default function Checkout() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
-      <div className="container mx-auto px-[5px] sm:px-4 py-8 max-w-6xl">
+      <div className="container mx-auto px-[10px] sm:px-4 py-8 max-w-6xl">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-primary mb-2">Checkout</h1>
           <div className="flex items-center text-sm text-gray-600">

@@ -47,7 +47,7 @@ export default function WishlistPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
-      <div className="container mx-auto px-[5px] sm:px-4 py-8">
+      <div className="container mx-auto px-[10px] sm:px-4 py-8">
         <Button variant="outline" className="mb-6 text-sm h-9" asChild>
           <Link href="/shop"><ArrowLeft className="h-4 w-4 mr-1" />Back to Shop</Link>
         </Button>
