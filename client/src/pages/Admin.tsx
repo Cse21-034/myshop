@@ -58,7 +58,7 @@ const messageStatusSchema = z.object({
 });
 type ProductFormData = z.infer<typeof productSchema>;
 
-type Section = "overview" | "products" | "orders" | "messages" | "sellers" | "farm" | "kgotla" | "returns" | "coupons";
+type Section = "overview" | "orders" | "messages" | "sellers" | "farm" | "kgotla" | "returns" | "coupons";
 
 // ── Chart colours ─────────────────────────────────────────────────────────────
 const PIE_COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
@@ -572,7 +572,6 @@ export default function Admin() {
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         <p className="text-xs text-slate-500 uppercase tracking-widest px-3 mb-2">Main</p>
         <NavItem icon={LayoutDashboard} label="Overview" active={section === "overview"} onClick={() => go("overview")} />
-        <NavItem icon={Package} label="Products" active={section === "products"} onClick={() => go("products")} />
         <NavItem icon={ShoppingCart} label="Orders" active={section === "orders"} badge={pendingOrders || undefined} onClick={() => go("orders")} />
         <p className="text-xs text-slate-500 uppercase tracking-widest px-3 pt-4 mb-2">Manage</p>
         <NavItem icon={Mail} label="Messages" active={section === "messages"} badge={unreadCount || undefined} onClick={() => go("messages")} />
@@ -1014,51 +1013,6 @@ export default function Admin() {
                       {isFarm && <Button size="sm" variant="outline" className="h-7 px-2 text-xs border-orange-300 text-orange-600" onClick={() => resendToERMMutation.mutate(o.id)}>
                         <RefreshCw className="h-3 w-3 mr-1" />ERM
                       </Button>}
-                      <Dialog open={isOrderDialogOpen} onOpenChange={setIsOrderDialogOpen}>
-                        <DialogTrigger asChild>
-                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditingOrder(o); orderForm.reset({ status: o.status, trackingNumber: (o as any).trackingNumber ?? "" }); setIsOrderDialogOpen(true); }}><Edit className="h-3.5 w-3.5" /></Button>
-                        </DialogTrigger>
-                        <DialogContent className="max-w-md">
-                          <DialogHeader><DialogTitle>Order #{editingOrder?.id}</DialogTitle></DialogHeader>
-                          {editingOrder && (
-                            <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1 mb-2">
-                              <p className="font-medium">{editingOrder.firstName} {editingOrder.lastName}</p>
-                              <p className="text-gray-500 text-xs">{editingOrder.email} · {editingOrder.phone}</p>
-                              <p className="text-gray-500 text-xs">{editingOrder.address}, {editingOrder.city}</p>
-                              <div className="flex items-center justify-between pt-1 border-t border-gray-200 mt-2">
-                                <span className="text-gray-500 text-xs">Total</span>
-                                <span className="font-semibold text-sm">P {(parseFloat(editingOrder.total) * 13.5).toFixed(2)}</span>
-                              </div>
-                            </div>
-                          )}
-                          <Form {...orderForm}>
-                            <form onSubmit={orderForm.handleSubmit((d) => editingOrder && updateOrderMutation.mutate({ id: editingOrder.id, status: d.status, trackingNumber: d.trackingNumber }))} className="space-y-4">
-                              <FormField control={orderForm.control} name="status" render={({ field }) => (
-                                <FormItem><FormLabel>Status</FormLabel>
-                                  <Select onValueChange={field.onChange} value={field.value}>
-                                    <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                                    <SelectContent>
-                                      {["awaiting_confirmation","confirmed","pending","processing","shipped","delivered","cancelled"].map((s) => <SelectItem key={s} value={s}>{STATUS_LABEL[s] || s}</SelectItem>)}
-                                    </SelectContent>
-                                  </Select><FormMessage />
-                                </FormItem>
-                              )} />
-                              <FormField control={orderForm.control} name="trackingNumber" render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Tracking Number <span className="text-gray-400 font-normal">(optional)</span></FormLabel>
-                                  <FormControl><Input placeholder="e.g. BW123456789" {...field} /></FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )} />
-                              <p className="text-xs text-gray-400">Customer will receive an email notification when you save.</p>
-                              <Button type="submit" className="w-full" disabled={updateOrderMutation.isPending}>
-                                {updateOrderMutation.isPending ? "Saving…" : "Save & Notify Customer"}
-                              </Button>
-                            </form>
-                          </Form>
-                        </DialogContent>
-                      </Dialog>
-                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => confirm("Delete order?") && deleteOrderMutation.mutate(o.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -1363,7 +1317,6 @@ export default function Admin() {
         {/* Content */}
         <main className="flex-1 overflow-y-auto p-4 md:p-6">
           {section === "overview" && overviewSection}
-          {section === "products" && productsSection}
           {section === "orders" && ordersSection}
           {section === "messages" && messagesSection}
           {section === "sellers" && sellersSection}

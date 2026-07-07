@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Plus, Edit, Trash2, ArrowLeft, Package,
   Image as ImageIcon, X, Ruler, Palette, ListChecks,
+  Upload, Download, CheckCircle2, AlertCircle,
 } from "lucide-react";
 
 const USD_TO_BWP = 13.5;
@@ -283,12 +284,43 @@ function ProductForm({
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
+// ── CSV helpers ───────────────────────────────────────────────────────────────
+function parseCSV(text: string): Record<string, string>[] {
+  const lines = text.trim().split(/\r?\n/).filter(Boolean);
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",").map(h => h.replace(/^"|"$/g, "").trim().toLowerCase());
+  return lines.slice(1).map(line => {
+    const cols: string[] = [];
+    let cur = "", inQ = false;
+    for (const ch of line) {
+      if (ch === '"') { inQ = !inQ; continue; }
+      if (ch === "," && !inQ) { cols.push(cur); cur = ""; } else cur += ch;
+    }
+    cols.push(cur);
+    return Object.fromEntries(headers.map((h, i) => [h, (cols[i] ?? "").trim()]));
+  });
+}
+
+function downloadTemplate() {
+  const csv = "name,price,originalPrice,stock,description,categoryId\n\"My Product\",100,,10,\"Description here\",\n";
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = "products-template.csv";
+  a.click();
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
 export default function SellerProducts() {
   const [, navigate] = useLocation();
   const [isNew] = useRoute("/seller/products/new");
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [editingProduct, setEditingProduct] = useState<any | null>(null);
+
+  // CSV import state
+  const [csvRows, setCsvRows] = useState<Record<string, string>[]>([]);
+  const [csvFileName, setCsvFileName] = useState("");
+  const [importResult, setImportResult] = useState<{ imported: number; errors: any[] } | null>(null);
 
   const { data: categories = [] } = useQuery({
     queryKey: ["/api/categories"],
@@ -336,6 +368,33 @@ export default function SellerProducts() {
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const importMutation = useMutation({
+    mutationFn: async (rows: Record<string, string>[]) => {
+      const res = await apiRequest("POST", "/api/seller/products/bulk-import", { products: rows });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json() as Promise<{ imported: number; errors: any[] }>;
+    },
+    onSuccess: (data) => {
+      setImportResult(data);
+      setCsvRows([]);
+      setCsvFileName("");
+      queryClient.invalidateQueries({ queryKey: createQueryKey("/api/seller/products") });
+      toast({ title: `Imported ${data.imported} product${data.imported !== 1 ? "s" : ""}`, description: data.errors.length ? `${data.errors.length} rows had errors.` : undefined });
+    },
+    onError: (e: Error) => toast({ title: "Import failed", description: e.message, variant: "destructive" }),
+  });
+
+  function handleCSVFile(file: File) {
+    setCsvFileName(file.name);
+    setImportResult(null);
+    const reader = new FileReader();
+    reader.onload = e => {
+      const rows = parseCSV(e.target?.result as string);
+      setCsvRows(rows);
+    };
+    reader.readAsText(file);
+  }
+
   if (isNew) {
     return (
       <SellerLayout title="Add Product" action={
@@ -378,6 +437,95 @@ export default function SellerProducts() {
               serverError={updateMutation.error?.message}
             />
           )}
+
+          {/* CSV Bulk Import */}
+          <Card className="border-0 shadow-sm">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Upload className="h-4 w-4 text-primary" />
+                  <p className="text-sm font-semibold text-gray-800">Bulk Import via CSV</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={downloadTemplate}
+                  className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                >
+                  <Download className="h-3.5 w-3.5" /> Download template
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mb-3">
+                Upload a CSV with columns: <code className="bg-gray-100 px-1 rounded">name, price, originalPrice, stock, description, categoryId</code>. Max 100 rows.
+              </p>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <div className="flex items-center gap-2 px-3 py-2 border border-dashed border-gray-300 rounded-lg hover:border-primary hover:bg-primary/5 transition-colors text-sm text-gray-600">
+                  <Upload className="h-4 w-4" />
+                  {csvFileName || "Choose CSV file"}
+                </div>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="hidden"
+                  onChange={e => e.target.files?.[0] && handleCSVFile(e.target.files[0])}
+                />
+              </label>
+
+              {csvRows.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs text-gray-500">{csvRows.length} row{csvRows.length !== 1 ? "s" : ""} ready — preview:</p>
+                  <div className="overflow-x-auto rounded-lg border border-gray-100">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          {["name", "price", "stock", "description"].map(h => (
+                            <th key={h} className="text-left px-3 py-2 font-medium text-gray-500 capitalize">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {csvRows.slice(0, 5).map((r, i) => (
+                          <tr key={i} className="border-t border-gray-50">
+                            <td className="px-3 py-1.5 max-w-[140px] truncate">{r.name}</td>
+                            <td className="px-3 py-1.5">{r.price}</td>
+                            <td className="px-3 py-1.5">{r.stock}</td>
+                            <td className="px-3 py-1.5 max-w-[160px] truncate text-gray-400">{r.description}</td>
+                          </tr>
+                        ))}
+                        {csvRows.length > 5 && (
+                          <tr className="border-t border-gray-50">
+                            <td colSpan={4} className="px-3 py-1.5 text-gray-400">…and {csvRows.length - 5} more row{csvRows.length - 5 !== 1 ? "s" : ""}</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <Button
+                    size="sm"
+                    disabled={importMutation.isPending}
+                    onClick={() => importMutation.mutate(csvRows)}
+                    className="gap-2"
+                  >
+                    {importMutation.isPending ? "Importing…" : `Import ${csvRows.length} Product${csvRows.length !== 1 ? "s" : ""}`}
+                  </Button>
+                </div>
+              )}
+
+              {importResult && (
+                <div className="mt-3 space-y-1.5">
+                  <div className="flex items-center gap-2 text-xs text-emerald-700">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    {importResult.imported} product{importResult.imported !== 1 ? "s" : ""} imported successfully.
+                  </div>
+                  {importResult.errors.map((e, i) => (
+                    <div key={i} className="flex items-start gap-2 text-xs text-red-600">
+                      <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                      Row {e.row} {e.name ? `(${e.name})` : ""}: {e.error}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Product list */}
           {isLoading ? (

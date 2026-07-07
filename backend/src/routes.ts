@@ -372,6 +372,105 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Seller: update order status (processing / shipped / delivered / cancelled only)
+  app.patch("/api/seller/orders/:id/status", isAuthenticated, csrfProtection, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.user as any).id;
+      const orderId = parseInt(req.params.id);
+      const { status, trackingNumber } = req.body;
+
+      const SELLER_STATUSES = ["processing", "shipped", "delivered", "cancelled"];
+      if (!SELLER_STATUSES.includes(status)) {
+        return res.status(400).json({ message: "Invalid status. Sellers may set: processing, shipped, delivered, or cancelled." });
+      }
+
+      const seller = await storage.getSellerByUserId(userId);
+      if (!seller || seller.status !== "approved") {
+        return res.status(403).json({ message: "Approved seller account required." });
+      }
+
+      const [hasItem] = await db
+        .select({ id: orderItems.id })
+        .from(orderItems)
+        .innerJoin(products, eq(orderItems.productId, products.id))
+        .where(and(eq(orderItems.orderId, orderId), eq(products.sellerId, userId)));
+
+      if (!hasItem) {
+        return res.status(403).json({ message: "Order not found or you have no products in this order." });
+      }
+
+      await storage.updateOrderStatus(orderId, status);
+      if (trackingNumber !== undefined) {
+        await db.update(orders).set({ trackingNumber }).where(eq(orders.id, orderId));
+      }
+
+      const order = await storage.getOrder(orderId);
+      if (order?.userId) {
+        await pushNotification(
+          order.userId, "order_update", "Order Update",
+          `Your order #${orderId} has been updated to: ${status.replace(/_/g, " ")}.`,
+          "/orders"
+        );
+      }
+
+      res.json({ ok: true, orderId, status });
+    } catch (err) {
+      console.error("Seller order status update failed", err);
+      res.status(500).json({ message: "Failed to update order status." });
+    }
+  });
+
+  // Seller: bulk product import (CSV parsed in browser, sent as JSON array)
+  app.post("/api/seller/products/bulk-import", isAuthenticated, csrfProtection, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.user as any).id;
+      const seller = await storage.getSellerByUserId(userId);
+      if (!seller || seller.status !== "approved") {
+        return res.status(403).json({ message: "Approved seller account required." });
+      }
+
+      const { products: rows } = req.body;
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return res.status(400).json({ message: "No products provided." });
+      }
+      if (rows.length > 100) {
+        return res.status(400).json({ message: "Maximum 100 products per import." });
+      }
+
+      const created: any[] = [];
+      const errors: any[] = [];
+
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        const name = String(r.name || "").trim();
+        if (!name) { errors.push({ row: i + 1, error: "Name is required" }); continue; }
+        const price = parseFloat(r.price);
+        if (isNaN(price) || price <= 0) { errors.push({ row: i + 1, name, error: "Valid price required" }); continue; }
+        try {
+          const slug = `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}-${Date.now().toString(36)}-${i}`;
+          const p = await storage.createProduct({
+            name, slug,
+            description: r.description ? String(r.description).trim() : null,
+            price: String(price),
+            originalPrice: r.originalPrice ? String(parseFloat(r.originalPrice)) : null,
+            categoryId: r.categoryId ? parseInt(r.categoryId) : null,
+            stock: parseInt(r.stock) || 0,
+            status: "active", active: true, featured: false,
+            sellerId: userId, images: [], sizes: [], colors: [], features: [],
+          } as any);
+          created.push(p);
+        } catch (e: any) {
+          errors.push({ row: i + 1, name, error: e.message || "Failed" });
+        }
+      }
+
+      res.json({ imported: created.length, errors });
+    } catch (err) {
+      console.error("Bulk import failed", err);
+      res.status(500).json({ message: "Bulk import failed." });
+    }
+  });
+
   // Seller: dashboard stats
   app.get("/api/seller/stats", isAuthenticated, async (req: Request, res: Response) => {
     try {

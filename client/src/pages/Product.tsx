@@ -210,7 +210,10 @@ export default function ProductPage() {
 
   const { data: social } = useQuery({
     queryKey: ["product-social", id, user?.id],
-    queryFn: () => fetch(`${backendURL}/api/products/${id}/social`, { credentials: "include" }).then((r) => r.json()),
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/products/${id}/social`);
+      return res.json();
+    },
     enabled: !!id,
   });
 
