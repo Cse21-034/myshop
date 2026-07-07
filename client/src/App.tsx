@@ -47,6 +47,9 @@ import TrackOrder from "@/pages/TrackOrder";
 import Wishlist from "@/pages/Wishlist";
 import SellerEarnings from "@/pages/SellerEarnings";
 import SellerMessages from "@/pages/SellerMessages";
+import Terms from "@/pages/Terms";
+import Privacy from "@/pages/Privacy";
+import PaymentResult from "@/pages/PaymentResult";
 
 // Professional Loading Screen with consistent colors and mobile optimization
 function LoadingScreen() {
@@ -133,6 +136,9 @@ function Router() {
       <Route path="/order-confirmation" component={OrderConfirmation} />
       <Route path="/track-order" component={TrackOrder} />
       <Route path="/wishlist" component={() => <ProtectedRoute component={Wishlist} />} />
+      <Route path="/terms" component={Terms} />
+      <Route path="/privacy" component={Privacy} />
+      <Route path="/payment-result" component={PaymentResult} />
       <Route component={NotFound} />
     </Switch>
   );

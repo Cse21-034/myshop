@@ -23,6 +23,7 @@ export default function AuthModal({ open, onOpenChange, defaultTab = "login" }: 
 
   const [loginData, setLoginData] = useState({ email: "", password: "" });
   const [registerData, setRegisterData] = useState({ firstName: "", lastName: "", email: "", password: "", confirm: "" });
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
 
   function storeTokens(token: string, refreshToken: string) {
@@ -86,6 +87,10 @@ export default function AuthModal({ open, onOpenChange, defaultTab = "login" }: 
       toast({ title: "Password too short", description: "Must be at least 8 characters.", variant: "destructive" });
       return;
     }
+    if (!termsAccepted) {
+      toast({ title: "Terms required", description: "Please accept the Terms of Service to continue.", variant: "destructive" });
+      return;
+    }
     setLoading(true);
     try {
       const res = await authFetch(`${BASE_URL}/api/auth/register`, {
@@ -93,6 +98,7 @@ export default function AuthModal({ open, onOpenChange, defaultTab = "login" }: 
         password: registerData.password,
         firstName: registerData.firstName,
         lastName: registerData.lastName,
+        termsAccepted: true,
       });
       const data = await res.json();
       if (!res.ok) {
@@ -234,7 +240,26 @@ export default function AuthModal({ open, onOpenChange, defaultTab = "login" }: 
                   required
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={loading}>
+              <div className="flex items-start gap-2 pt-1">
+                <input
+                  id="terms-checkbox"
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 accent-primary cursor-pointer shrink-0"
+                  checked={termsAccepted}
+                  onChange={(e) => setTermsAccepted(e.target.checked)}
+                />
+                <label htmlFor="terms-checkbox" className="text-xs text-gray-600 leading-relaxed cursor-pointer">
+                  I agree to the{" "}
+                  <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-primary underline hover:no-underline">
+                    Terms of Service
+                  </a>{" "}
+                  and{" "}
+                  <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-primary underline hover:no-underline">
+                    Privacy Policy
+                  </a>
+                </label>
+              </div>
+              <Button type="submit" className="w-full" disabled={loading || !termsAccepted}>
                 {loading ? "Creating account…" : "Create Account"}
               </Button>
             </form>

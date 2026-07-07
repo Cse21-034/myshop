@@ -199,6 +199,26 @@ async function migrate() {
       last_synced_at timestamp DEFAULT now()
     )`,
     `CREATE INDEX IF NOT EXISTS idx_kpm_kgotla_item_id ON kgotla_product_map(kgotla_item_id)`,
+
+    // Terms acceptance + phone on users
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS phone varchar`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted boolean DEFAULT false`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted_at timestamp`,
+
+    // PayGate card payment records
+    `CREATE TABLE IF NOT EXISTS paygate_payments (
+      id serial PRIMARY KEY,
+      order_id integer REFERENCES orders(id),
+      reference varchar(100) NOT NULL UNIQUE,
+      pay_request_id varchar(200),
+      payment_status varchar DEFAULT 'pending',
+      transaction_id varchar,
+      result_code varchar,
+      created_at timestamp DEFAULT now(),
+      updated_at timestamp DEFAULT now()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_paygate_payments_reference ON paygate_payments(reference)`,
+    `CREATE INDEX IF NOT EXISTS idx_paygate_payments_order_id  ON paygate_payments(order_id)`,
   ];
 
   for (const statement of migrations) {

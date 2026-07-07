@@ -24,6 +24,9 @@ export const users = pgTable("users", {
   isAdmin: boolean("is_admin").default(false),
   isSeller: boolean("is_seller").default(false),
   passwordHash: varchar("password_hash"),   // null for Google OAuth users
+  phone: varchar("phone"),
+  termsAccepted: boolean("terms_accepted").default(false),
+  termsAcceptedAt: timestamp("terms_accepted_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -288,6 +291,19 @@ export const chatMessages = pgTable("chat_messages", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// PayGate card payment records
+export const paygatePayments = pgTable("paygate_payments", {
+  id:            serial("id").primaryKey(),
+  orderId:       integer("order_id").references(() => orders.id),
+  reference:     varchar("reference", { length: 100 }).notNull().unique(),
+  payRequestId:  varchar("pay_request_id", { length: 200 }),
+  paymentStatus: varchar("payment_status").default("pending"), // pending | paid | failed
+  transactionId: varchar("transaction_id"),
+  resultCode:    varchar("result_code"),
+  createdAt:     timestamp("created_at").defaultNow(),
+  updatedAt:     timestamp("updated_at").defaultNow(),
+});
+
 // Contact messages table
 export const contactMessages = pgTable("contact_messages", {
   id: serial("id").primaryKey(),
@@ -404,6 +420,9 @@ export type ReturnRequest = typeof returnRequests.$inferSelect;
 
 export type InsertCoupon = typeof coupons.$inferInsert;
 export type Coupon = typeof coupons.$inferSelect;
+
+export type InsertPaygatePayment = typeof paygatePayments.$inferInsert;
+export type PaygatePayment = typeof paygatePayments.$inferSelect;
 
 // Enhanced schemas with new fields
 export const insertCategorySchema = createInsertSchema(categories).omit({

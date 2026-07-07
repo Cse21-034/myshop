@@ -1,34 +1,84 @@
+/**
+ * Email service — primary: Resend; fallback: Gmail (nodemailer).
+ * Resend "from" addresses must come from a verified domain.
+ * Categories map to different senders so they land in the right inbox tab.
+ */
+
 import nodemailer from "nodemailer";
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
+// ── Resend category senders ───────────────────────────────────────────────────
+// Override via env vars if your Resend domain differs.
+const DOMAIN = process.env.RESEND_DOMAIN || "fountstream.com";
+const SENDERS = {
+  registration: process.env.RESEND_FROM_REGISTRATION || `Fountstream <no-reply@${DOMAIN}>`,
+  order:        process.env.RESEND_FROM_ORDER        || `Fountstream Orders <orders@${DOMAIN}>`,
+  support:      process.env.RESEND_FROM_SUPPORT      || `Fountstream Support <support@${DOMAIN}>`,
+  billing:      process.env.RESEND_FROM_BILLING      || `Fountstream Billing <billing@${DOMAIN}>`,
+  info:         process.env.RESEND_FROM_INFO         || `Fountstream <info@${DOMAIN}>`,
+};
+
+type SenderCategory = keyof typeof SENDERS;
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+function htmlToText(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
 
 function gmailTransport() {
   const user = process.env.GMAIL_USER;
   const pass = process.env.GMAIL_APP_PASSWORD;
   if (!user || !pass) return null;
-
-  return nodemailer.createTransport({
-    service: "gmail",
-    auth: { user, pass },
-  });
+  return nodemailer.createTransport({ service: "gmail", auth: { user, pass } });
 }
 
-async function sendViaResend(to: string, subject: string, html: string): Promise<void> {
+async function sendViaResend(
+  to: string,
+  subject: string,
+  html: string,
+  category: SenderCategory = "info",
+): Promise<void> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) throw new Error("RESEND_API_KEY not set");
 
   const { Resend } = await import("resend");
   const resend = new Resend(apiKey);
 
-  const from = process.env.RESEND_FROM_EMAIL || "Fountstream <noreply@farmerm.com>";
-  const { error } = await resend.emails.send({ from, to, subject, html });
+  const from = SENDERS[category];
+  const text = htmlToText(html);
+
+  const { error } = await resend.emails.send({ from, to, subject, html, text });
   if (error) throw new Error(`Resend error: ${error.message}`);
 }
 
-// ─── public API ──────────────────────────────────────────────────────────────
+// ── public API ────────────────────────────────────────────────────────────────
 
-export async function sendEmail(to: string, subject: string, html: string): Promise<void> {
-  // Try Gmail first
+/**
+ * Send an email. Tries Resend first; falls back to Gmail if Resend key is missing.
+ * Gracefully logs a warning (never throws) when neither provider is configured.
+ */
+export async function sendEmail(
+  to: string,
+  subject: string,
+  html: string,
+  category: SenderCategory = "info",
+): Promise<void> {
+  // Try Resend first
+  if (process.env.RESEND_API_KEY) {
+    try {
+      await sendViaResend(to, subject, html, category);
+      console.log(`[Email] Sent via Resend (${category}) to ${to}`);
+      return;
+    } catch (err: any) {
+      console.warn("[Email] Resend failed, trying Gmail:", err.message);
+    }
+  }
+
+  // Fall back to Gmail
   const gmail = gmailTransport();
   if (gmail) {
     try {
@@ -37,20 +87,33 @@ export async function sendEmail(to: string, subject: string, html: string): Prom
         to,
         subject,
         html,
+        text: htmlToText(html),
       });
       console.log(`[Email] Sent via Gmail to ${to}`);
       return;
     } catch (err: any) {
-      console.warn("[Email] Gmail failed, falling back to Resend:", err.message);
+      console.error("[Email] Gmail also failed:", err.message);
     }
   }
 
-  // Fall back to Resend
-  await sendViaResend(to, subject, html);
-  console.log(`[Email] Sent via Resend to ${to}`);
+  console.warn(`[Email] No provider configured — email to ${to} NOT sent (subject: ${subject})`);
 }
 
-// ─── templates ───────────────────────────────────────────────────────────────
+// ── Convenience wrappers by category ─────────────────────────────────────────
+
+export function sendOrderEmail(to: string, subject: string, html: string) {
+  return sendEmail(to, subject, html, "order");
+}
+
+export function sendRegistrationEmail(to: string, subject: string, html: string) {
+  return sendEmail(to, subject, html, "registration");
+}
+
+export function sendSupportEmail(to: string, subject: string, html: string) {
+  return sendEmail(to, subject, html, "support");
+}
+
+// ── Templates ─────────────────────────────────────────────────────────────────
 
 const USD_TO_BWP = 13.5;
 function fmtBWP(usd: string | number): string {
@@ -87,9 +150,10 @@ export function orderConfirmationTemplate(order: {
        <p style="margin:4px 0;color:#888;font-size:13px">Due on collection: ${fmtBWP(order.remainingBalance ?? "0")}</p>`
     : `<p style="margin:4px 0;font-size:18px;font-weight:700;color:#1a4731">Total: ${fmtBWP(order.total)}</p>`;
 
-  const paymentLabel = order.paymentMethod === "cash"
-    ? "Cash on Delivery"
-    : order.paymentMethod.charAt(0).toUpperCase() + order.paymentMethod.slice(1);
+  const paymentLabel =
+    order.paymentMethod === "cash"
+      ? "Cash on Delivery"
+      : order.paymentMethod.charAt(0).toUpperCase() + order.paymentMethod.slice(1);
 
   return `<!DOCTYPE html>
 <html>
@@ -220,6 +284,41 @@ export function otpEmailTemplate(otp: string, firstName: string): string {
     </div>
     <div style="background:#f9f9f9;padding:16px 32px;text-align:center">
       <p style="color:#aaa;font-size:12px;margin:0">© ${new Date().getFullYear()} Fountstream · shop.farmerm.com</p>
+    </div>
+  </div>
+</body>
+</html>`.trim();
+}
+
+export function paymentSuccessTemplate(order: {
+  id: number;
+  firstName: string;
+  total: string;
+  reference: string;
+}): string {
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:sans-serif;background:#f5f5f5;margin:0;padding:24px">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08)">
+    <div style="background:#1a4731;padding:28px 32px;text-align:center">
+      <h1 style="color:#fff;margin:0;font-size:24px;font-weight:700">Fountstream</h1>
+      <p style="color:#86efac;margin:8px 0 0;font-size:14px">Payment Received ✓</p>
+    </div>
+    <div style="padding:32px;text-align:center">
+      <p style="font-size:40px;margin:0 0 12px">💳</p>
+      <h2 style="color:#111;margin:0 0 8px;font-size:20px">Hi ${order.firstName},</h2>
+      <p style="color:#555;margin:0 0 20px;line-height:1.6">We've received your card payment for order <strong>#${order.id}</strong>.</p>
+      <div style="background:#f0faf4;border-radius:8px;padding:16px;margin-bottom:20px;text-align:left">
+        <p style="margin:0 0 4px;font-size:12px;color:#888;text-transform:uppercase">Reference</p>
+        <p style="margin:0;font-size:15px;font-weight:700;color:#1a4731;font-family:monospace">${order.reference}</p>
+        <p style="margin:12px 0 4px;font-size:12px;color:#888;text-transform:uppercase">Amount</p>
+        <p style="margin:0;font-size:18px;font-weight:700;color:#1a4731">${fmtBWP(order.total)}</p>
+      </div>
+      <p style="color:#888;font-size:13px">Your order is now being processed. You'll receive shipping updates soon.</p>
+    </div>
+    <div style="background:#f9f9f9;padding:16px 32px;text-align:center">
+      <p style="color:#aaa;font-size:12px;margin:0">© ${new Date().getFullYear()} Fountstream</p>
     </div>
   </div>
 </body>

@@ -37,7 +37,7 @@ const checkoutSchema = z.object({
   
   state: z.string().min(2, "Please select a state"),
   zipCode: z.string().min(5, "Please enter a valid ZIP code"),
-  paymentMethod: z.enum(["stripe", "paypal", "orangemoney", "cash"], {
+  paymentMethod: z.enum(["stripe", "paypal", "orangemoney", "cash", "paygate"], {
     required_error: "Please select a payment method",
   }),
   orangeMoneyPhone: z.string().optional(),
@@ -275,8 +275,74 @@ export default function Checkout() {
     }
   };
 
+  const handlePayGatePayment = async (orderData: CheckoutFormData) => {
+    // Step 1: create the order (status = pending)
+    const orderItems = cartItemsWithProducts.map(item => ({
+      productId: item.productId,
+      productName: item.product?.name || "",
+      productPrice: item.product?.price || "0",
+      quantity: item.quantity,
+      size: item.size,
+      color: item.color,
+    }));
+    const orderPayload = {
+      orderData: {
+        email: orderData.email,
+        firstName: orderData.firstName,
+        lastName: orderData.lastName,
+        phone: orderData.phone,
+        address: orderData.address,
+        city: orderData.city,
+        state: orderData.state,
+        zipCode: orderData.zipCode,
+        paymentMethod: "paygate",
+        subtotal: subtotal.toFixed(2),
+        shipping: shipping.toFixed(2),
+        tax: tax.toFixed(2),
+        total: total.toFixed(2),
+        couponCode: appliedCoupon?.code ?? undefined,
+        discountAmount: couponDiscount > 0 ? couponDiscount.toFixed(2) : undefined,
+        status: "pending",
+      },
+      items: orderItems,
+      fulfillmentType: isFarmOrder ? fulfillmentType : undefined,
+    };
+    const orderRes = await apiRequest("POST", "/api/orders", orderPayload);
+    const newOrder = await orderRes.json();
+    if (!newOrder?.id) throw new Error("Failed to create order");
+
+    // Step 2: initiate PayGate — get PAY_REQUEST_ID
+    const initRes  = await apiRequest("POST", "/api/paygate/initiate", { orderId: newOrder.id });
+    const initData = await initRes.json();
+    if (!initData?.payRequestId) throw new Error(initData?.message || "PayGate initiation failed");
+
+    // Step 3: build hidden form and auto-submit to PayGate process URL
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = initData.processUrl;
+    const addField = (name: string, value: string) => {
+      const input = document.createElement("input");
+      input.type  = "hidden";
+      input.name  = name;
+      input.value = value;
+      form.appendChild(input);
+    };
+    addField("PAY_REQUEST_ID", initData.payRequestId);
+    addField("CHECKSUM",       initData.checksum);
+    document.body.appendChild(form);
+    clearCart();
+    form.submit();
+  };
+
   const onSubmit = async (data: CheckoutFormData) => {
-    if (data.paymentMethod === "stripe") {
+    if (data.paymentMethod === "paygate") {
+      try {
+        await handlePayGatePayment(data);
+      } catch (err: any) {
+        toast({ title: "Payment failed", description: err.message || "Could not start card payment.", variant: "destructive" });
+      }
+      return;
+    } else if (data.paymentMethod === "stripe") {
       await handleStripePayment(data);
     } else if (data.paymentMethod === "paypal") {
       // PayPal handled by PayPalButtons component
@@ -325,6 +391,9 @@ export default function Checkout() {
 
   const orangeMoneyApiKey = import.meta.env.VITE_ORANGE_MONEY_API_KEY;
   const isOrangeMoneyAvailable = !!orangeMoneyApiKey && orangeMoneyApiKey !== "" && orangeMoneyApiKey !== "your-orange-money-api-key-here";
+
+  const paygateId = import.meta.env.VITE_PAYGATE_MERCHANT_ID;
+  const isPayGateAvailable = !!paygateId && paygateId !== "" && paygateId !== "your-paygate-merchant-id-here";
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -567,6 +636,24 @@ export default function Checkout() {
                                   </label>
                                 </div>
                                 <div className="flex items-center space-x-2">
+                                  <RadioGroupItem
+                                    value="paygate"
+                                    id="paygate"
+                                    disabled={!isPayGateAvailable}
+                                  />
+                                  <label
+                                    htmlFor="paygate"
+                                    className={`text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 ${
+                                      !isPayGateAvailable ? "text-gray-400" : ""
+                                    }`}
+                                  >
+                                    Pay by Card (PayGate)
+                                    {!isPayGateAvailable && (
+                                      <span className="ml-2 text-xs text-red-500">(Not configured)</span>
+                                    )}
+                                  </label>
+                                </div>
+                                <div className="flex items-center space-x-2">
                                   <RadioGroupItem value="cash" id="cash" />
                                   <label
                                     htmlFor="cash"
@@ -721,14 +808,16 @@ export default function Checkout() {
                         type="submit"
                         className="w-full bg-primary hover:bg-gray-800"
                         disabled={
-                          createOrderMutation.isPending || 
-                          form.watch("paymentMethod") === "paypal" || // Disable for PayPal since buttons handle the submission
+                          createOrderMutation.isPending ||
+                          form.watch("paymentMethod") === "paypal" ||
                           (form.watch("paymentMethod") === "stripe" && !isStripeAvailable) ||
-                          (form.watch("paymentMethod") === "orangemoney" && !isOrangeMoneyAvailable)
+                          (form.watch("paymentMethod") === "orangemoney" && !isOrangeMoneyAvailable) ||
+                          (form.watch("paymentMethod") === "paygate" && !isPayGateAvailable)
                         }
                       >
-                        {createOrderMutation.isPending ? "Processing..." : 
+                        {createOrderMutation.isPending ? "Processing..." :
                          form.watch("paymentMethod") === "paypal" ? "Use PayPal Button Above" :
+                         form.watch("paymentMethod") === "paygate" ? "Pay by Card →" :
                          "Place Order"}
                       </Button>
                     </div>

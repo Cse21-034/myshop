@@ -5,10 +5,12 @@ import { storage } from "./storage";
 import { isAuthenticated } from "./googleAuth";
 import { eq, sql, and, count, avg, desc, gte, lt } from "drizzle-orm";
 import { db } from "./db";
-import { contactMessages, products, orders, productLikes, wishlistItems, productReviews, orderItems, users, stockNotifications, returnRequests, coupons, notifications, productQuestions, payoutRequests, abandonedCartLogs, cartItems, sellers, productChats, chatMessages } from "./schema";
+import { contactMessages, products, orders, productLikes, wishlistItems, productReviews, orderItems, users, stockNotifications, returnRequests, coupons, notifications, productQuestions, payoutRequests, abandonedCartLogs, cartItems, sellers, productChats, chatMessages, paygatePayments } from "./schema";
 import { createStripePaymentIntent, initiateOrangeMoneyPayment } from "./payment";
 import { createPayPalOrder, capturePayPalOrder } from "./paypal-service";
-import { sendEmail, otpEmailTemplate, orderConfirmationTemplate, orderStatusUpdateTemplate } from "./email";
+import { sendEmail, sendOrderEmail, sendRegistrationEmail, otpEmailTemplate, orderConfirmationTemplate, orderStatusUpdateTemplate, paymentSuccessTemplate } from "./email";
+import { payGate, getResultCodeMessage } from "./paygate";
+import { sendSmsQuiet, smsTemplates } from "./sms";
 import { setOtp, getOtp, incrementOtpAttempts, deleteOtp } from "./tokenStore";
 import {
   insertProductSchema,
@@ -539,12 +541,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/auth/register", async (req: Request, res: Response) => {
     try {
-      const { email, password, firstName, lastName } = req.body;
+      const { email, password, firstName, lastName, termsAccepted } = req.body;
       if (!email || !password || !firstName) {
         return res.status(400).json({ message: "Email, password and first name are required" });
       }
       if (password.length < 8) {
         return res.status(400).json({ message: "Password must be at least 8 characters" });
+      }
+      if (!termsAccepted) {
+        return res.status(400).json({ message: "You must accept the Terms of Service to create an account." });
       }
 
       const existing = await storage.getUserByEmail(email);
@@ -569,7 +574,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         lastName: lastName || null,
         profileImageUrl: null,
         passwordHash,
-      });
+        termsAccepted: true,
+        termsAcceptedAt: new Date(),
+      } as any);
 
       const jwt = await import("jsonwebtoken");
       const token = jwt.default.sign(
@@ -2388,6 +2395,226 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("[AbandonedCart] Job failed:", err);
     }
   }, 15 * 60 * 1000);
+
+  // ── PayGate urlencoded body parser (for callback + return POSTs from PayGate) ──
+  app.use("/api/paygate", require("express").urlencoded({ extended: false }));
+
+  // ── PayGate helper ────────────────────────────────────────────────────────────
+  function getBaseUrl(req: Request): string {
+    const proto = (req.headers["x-forwarded-proto"] as string)?.split(",")[0]?.trim() || req.protocol;
+    const host  = req.headers["x-forwarded-host"] as string || req.get("host") || "";
+    return `${proto}://${host}`;
+  }
+
+  // ==========================================================================
+  // PAYGATE ROUTES
+  // ==========================================================================
+
+  /**
+   * Step 1 — create or retrieve pending payment record and get PAY_REQUEST_ID from PayGate.
+   * Called by the frontend before building the process form.
+   */
+  app.post("/api/paygate/initiate", isAuthenticated, csrfProtection, async (req: Request, res: Response) => {
+    try {
+      if (!payGate.isConfigured) {
+        return res.status(503).json({ message: "Card payments are not configured on this server." });
+      }
+
+      const userId   = (req.user as any).id;
+      const { orderId } = req.body;
+      if (!orderId) return res.status(400).json({ message: "orderId is required" });
+
+      const order = await storage.getOrder(Number(orderId));
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      if (order.userId !== userId) return res.status(403).json({ message: "Forbidden" });
+
+      // Amount: total in BWP cents (USD × 13.5 × 100, rounded to integer)
+      const USD_TO_BWP = 13.5;
+      const amountBWP  = Math.round(parseFloat(order.total) * USD_TO_BWP * 100);
+      const reference  = `FS-${order.id}-${Date.now()}`;
+
+      const base      = getBaseUrl(req);
+      const returnUrl = `${base}/api/paygate/return`;
+      const notifyUrl = `${base}/api/paygate/callback`;
+
+      const params = payGate.buildInitiateParams({
+        reference,
+        amount:    amountBWP,
+        currency:  "BWP",
+        email:     order.email,
+        returnUrl,
+        notifyUrl,
+      });
+
+      // POST to PayGate initiate endpoint
+      const pgRes = await fetch(payGate.INITIATE_URL, {
+        method:  "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body:    new URLSearchParams(params).toString(),
+      });
+      const raw = await pgRes.text();
+
+      // PayGate returns URL-encoded response: PAY_REQUEST_ID=xxx&CHECKSUM=yyy
+      const pgData: Record<string, string> = {};
+      for (const pair of raw.split("&")) {
+        const [k, v] = pair.split("=");
+        if (k) pgData[decodeURIComponent(k)] = decodeURIComponent(v ?? "");
+      }
+
+      if (!pgData.PAY_REQUEST_ID) {
+        console.error("[PayGate] Initiate failed:", raw);
+        return res.status(502).json({ message: "PayGate initiation failed", detail: raw });
+      }
+
+      // Persist the pending payment record
+      await db.insert(paygatePayments).values({
+        orderId:  order.id,
+        reference,
+        payRequestId: pgData.PAY_REQUEST_ID,
+        paymentStatus: "pending",
+      }).onConflictDoUpdate({
+        target: paygatePayments.reference,
+        set: { payRequestId: pgData.PAY_REQUEST_ID, updatedAt: new Date() },
+      });
+
+      const processChecksum = payGate.buildProcessChecksum(pgData.PAY_REQUEST_ID, reference);
+
+      res.json({
+        payRequestId:     pgData.PAY_REQUEST_ID,
+        checksum:         processChecksum,
+        processUrl:       payGate.PROCESS_URL,
+        reference,
+      });
+    } catch (err: any) {
+      console.error("[PayGate] Initiate error:", err);
+      res.status(500).json({ message: "Failed to initiate payment" });
+    }
+  });
+
+  /**
+   * Step 2 return handler — PayGate redirects the browser here after card entry.
+   * Verifies checksum, updates DB, then redirects to frontend /payment-result.
+   * Must return a redirect (not JSON) because this is a browser redirect from PayGate.
+   */
+  app.post("/api/paygate/return", async (req: Request, res: Response) => {
+    try {
+      const { PAY_REQUEST_ID, REFERENCE, CHECKSUM, TRANSACTION_STATUS, RESULT_CODE } = req.body;
+      const base = getBaseUrl(req);
+
+      if (!PAY_REQUEST_ID || !REFERENCE || !CHECKSUM) {
+        return res.redirect(`${base}/payment-result?status=failed&failureReason=Invalid+response+from+payment+gateway`);
+      }
+
+      const valid = payGate.verifyReturnChecksum(PAY_REQUEST_ID, REFERENCE, CHECKSUM);
+      if (!valid) {
+        console.warn("[PayGate] Return checksum mismatch", { PAY_REQUEST_ID, REFERENCE });
+        return res.redirect(`${base}/payment-result?status=failed&failureReason=Checksum+verification+failed`);
+      }
+
+      // TRANSACTION_STATUS: 1 = approved
+      if (TRANSACTION_STATUS === "1") {
+        await db.update(paygatePayments)
+          .set({ paymentStatus: "paid", resultCode: RESULT_CODE, updatedAt: new Date() })
+          .where(eq(paygatePayments.reference, REFERENCE));
+
+        return res.redirect(`${base}/payment-result?status=success&orderId=${REFERENCE}`);
+      } else {
+        const reason = getResultCodeMessage(RESULT_CODE ?? "");
+        await db.update(paygatePayments)
+          .set({ paymentStatus: "failed", resultCode: RESULT_CODE, updatedAt: new Date() })
+          .where(eq(paygatePayments.reference, REFERENCE));
+
+        return res.redirect(
+          `${base}/payment-result?status=failed&failureReason=${encodeURIComponent(reason)}`
+        );
+      }
+    } catch (err: any) {
+      console.error("[PayGate] Return error:", err);
+      const base = getBaseUrl(req);
+      res.redirect(`${base}/payment-result?status=failed&failureReason=Internal+server+error`);
+    }
+  });
+
+  /**
+   * Callback — server-to-server POST from PayGate (silent, no browser involved).
+   * Must reply with plain text "OK".
+   */
+  app.post("/api/paygate/callback", async (req: Request, res: Response) => {
+    try {
+      const data: Record<string, string> = req.body;
+      const { REFERENCE, TRANSACTION_STATUS, RESULT_CODE, TRANSACTION_ID, PAY_REQUEST_ID } = data;
+
+      const valid = payGate.verifyCallbackChecksum(data);
+      if (!valid) {
+        console.warn("[PayGate] Callback checksum mismatch for ref", REFERENCE);
+        return res.send("OK"); // Always respond OK to prevent retries
+      }
+
+      if (TRANSACTION_STATUS === "1") {
+        // Mark payment paid
+        await db.update(paygatePayments)
+          .set({ paymentStatus: "paid", transactionId: TRANSACTION_ID, resultCode: RESULT_CODE, updatedAt: new Date() })
+          .where(eq(paygatePayments.reference, REFERENCE));
+
+        // Retrieve payment record to get orderId
+        const [payment] = await db.select().from(paygatePayments)
+          .where(eq(paygatePayments.reference, REFERENCE)).limit(1);
+
+        if (payment?.orderId) {
+          const order = await storage.getOrder(payment.orderId);
+          if (order) {
+            // Mark order paid
+            await storage.updateOrderStatus(payment.orderId, "processing");
+
+            // Notify buyer by SMS
+            if (order.phone) {
+              const USD_TO_BWP = 13.5;
+              const bwpTotal = (parseFloat(order.total) * USD_TO_BWP).toFixed(2);
+              sendSmsQuiet(order.phone, smsTemplates.paymentReceived(order.id, bwpTotal));
+            }
+
+            // Notify buyer by email
+            const items = await storage.getOrderItemsByOrderId(payment.orderId);
+            const html  = paymentSuccessTemplate({ id: order.id, firstName: order.firstName, total: order.total, reference: REFERENCE });
+            sendOrderEmail(order.email, `Payment confirmed — Order #${order.id}`, html).catch((e: any) =>
+              console.error("[PayGate] Email failed:", e.message)
+            );
+
+            // Notify seller(s) by SMS
+            const sellerIds = [...new Set(items.map((i: any) => i.sellerId).filter(Boolean))];
+            for (const sid of sellerIds) {
+              const [seller] = await db.select().from(sellers).where(eq(sellers.userId, sid as string)).limit(1);
+              if (seller) {
+                const sellerUser = await storage.getUser(seller.userId);
+                if (sellerUser?.phone) {
+                  const bwpTotal = (parseFloat(order.total) * 13.5).toFixed(2);
+                  sendSmsQuiet(sellerUser.phone, smsTemplates.sellerNewOrder(order.id, bwpTotal));
+                }
+              }
+            }
+          }
+        }
+      } else {
+        await db.update(paygatePayments)
+          .set({ paymentStatus: "failed", transactionId: TRANSACTION_ID, resultCode: RESULT_CODE, updatedAt: new Date() })
+          .where(eq(paygatePayments.reference, REFERENCE));
+
+        const [payment] = await db.select().from(paygatePayments)
+          .where(eq(paygatePayments.reference, REFERENCE)).limit(1);
+        if (payment?.orderId) {
+          const order = await storage.getOrder(payment.orderId);
+          if (order?.phone) {
+            sendSmsQuiet(order.phone, smsTemplates.paymentFailed(payment.orderId));
+          }
+        }
+      }
+
+      res.send("OK");
+    } catch (err: any) {
+      console.error("[PayGate] Callback error:", err);
+      res.send("OK"); // Always reply OK
+    }
+  });
 
   const httpServer = createServer(app);
   return httpServer;
