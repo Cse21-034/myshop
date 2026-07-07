@@ -1,4 +1,5 @@
 // server/src/routes.ts
+import express from "express";
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
@@ -2397,7 +2398,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }, 15 * 60 * 1000);
 
   // ── PayGate urlencoded body parser (for callback + return POSTs from PayGate) ──
-  app.use("/api/paygate", require("express").urlencoded({ extended: false }));
+  app.use("/api/paygate", express.urlencoded({ extended: false }));
 
   // ── PayGate helper ────────────────────────────────────────────────────────────
   function getBaseUrl(req: Request): string {
