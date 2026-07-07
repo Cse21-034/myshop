@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { getQueryFn, createQueryKey } from "@/lib/queryClient";
 import {
   LayoutDashboard, Package, ShoppingCart, Store, ExternalLink,
-  Menu, X, Plus, Clock, TrendingUp,
+  Menu, X, Plus, Clock, TrendingUp, MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -95,6 +95,14 @@ export default function SellerLayout({ children, title, action }: SellerLayoutPr
     enabled: seller?.status === "approved",
   });
 
+  const { data: chats = [] } = useQuery<any[]>({
+    queryKey: createQueryKey("/api/seller/chats"),
+    queryFn: getQueryFn({ on401: "returnNull" }),
+    enabled: seller?.status === "approved",
+    refetchInterval: 30000,
+  });
+  const unreadMessages = (chats as any[]).reduce((s, c) => s + (c.unread ?? 0), 0);
+
   if (isLoading) return null;
   if (!seller) return <NoSellerScreen />;
   if (seller.status !== "approved") return <PendingScreen status={seller.status} />;
@@ -133,6 +141,7 @@ export default function SellerLayout({ children, title, action }: SellerLayoutPr
         <NavItem icon={Package} label="Products" active={isActive("/seller/products")} onClick={() => go("/seller/products")} />
         <NavItem icon={ShoppingCart} label="Orders" active={isActive("/seller/orders")} badge={pendingOrders || undefined} onClick={() => go("/seller/orders")} />
         <NavItem icon={TrendingUp} label="Earnings" active={isActive("/seller/earnings")} onClick={() => go("/seller/earnings")} />
+        <NavItem icon={MessageSquare} label="Messages" active={isActive("/seller/messages")} badge={unreadMessages || undefined} onClick={() => go("/seller/messages")} />
       </nav>
 
       {/* Bottom */}

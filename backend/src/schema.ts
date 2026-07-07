@@ -269,6 +269,25 @@ export const coupons = pgTable("coupons", {
   createdAt:  timestamp("created_at").defaultNow(),
 });
 
+// Product chat — buyer↔seller conversations per product
+export const productChats = pgTable("product_chats", {
+  id: serial("id").primaryKey(),
+  productId: integer("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  buyerId: varchar("buyer_id").notNull().references(() => users.id),
+  sellerId: varchar("seller_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const chatMessages = pgTable("chat_messages", {
+  id: serial("id").primaryKey(),
+  chatId: integer("chat_id").notNull().references(() => productChats.id, { onDelete: "cascade" }),
+  senderId: varchar("sender_id").notNull().references(() => users.id),
+  content: text("content").notNull(),
+  read: boolean("read").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Contact messages table
 export const contactMessages = pgTable("contact_messages", {
   id: serial("id").primaryKey(),

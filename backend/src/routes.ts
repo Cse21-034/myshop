@@ -5,7 +5,7 @@ import { storage } from "./storage";
 import { isAuthenticated } from "./googleAuth";
 import { eq, sql, and, count, avg, desc, gte, lt } from "drizzle-orm";
 import { db } from "./db";
-import { contactMessages, products, orders, productLikes, wishlistItems, productReviews, orderItems, users, stockNotifications, returnRequests, coupons, notifications, productQuestions, payoutRequests, abandonedCartLogs, cartItems, sellers } from "./schema";
+import { contactMessages, products, orders, productLikes, wishlistItems, productReviews, orderItems, users, stockNotifications, returnRequests, coupons, notifications, productQuestions, payoutRequests, abandonedCartLogs, cartItems, sellers, productChats, chatMessages } from "./schema";
 import { createStripePaymentIntent, initiateOrangeMoneyPayment } from "./payment";
 import { createPayPalOrder, capturePayPalOrder } from "./paypal-service";
 import { sendEmail, otpEmailTemplate, orderConfirmationTemplate, orderStatusUpdateTemplate } from "./email";
@@ -1453,6 +1453,173 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting order:", error);
       res.status(500).json({ message: "Failed to delete order", code: "DELETE_ORDER_ERROR" });
+    }
+  });
+
+  // ==========================================================================
+  // PRODUCT CHAT ROUTES
+  // ==========================================================================
+
+  // Start or get existing chat between logged-in buyer and product's seller
+  app.post("/api/products/:id/chat", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const productId = parseInt(req.params.id);
+      const buyerId = (req.user as any).id;
+      const product = await storage.getProduct(productId);
+      if (!product) return res.status(404).json({ message: "Product not found" });
+      if (!product.sellerId) return res.status(400).json({ message: "This product has no seller to chat with" });
+      if (product.sellerId === buyerId) return res.status(400).json({ message: "You cannot chat with yourself" });
+
+      // Find or create chat
+      const existing = await db.select().from(productChats)
+        .where(and(eq(productChats.productId, productId), eq(productChats.buyerId, buyerId)))
+        .limit(1);
+      if (existing.length) return res.json(existing[0]);
+
+      const [chat] = await db.insert(productChats).values({
+        productId, buyerId, sellerId: product.sellerId,
+      }).returning();
+      res.json(chat);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to start chat" });
+    }
+  });
+
+  // Get messages for a chat
+  app.get("/api/chats/:chatId/messages", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const chatId = parseInt(req.params.chatId);
+      const userId = (req.user as any).id;
+      const [chat] = await db.select().from(productChats).where(eq(productChats.id, chatId)).limit(1);
+      if (!chat) return res.status(404).json({ message: "Chat not found" });
+      if (chat.buyerId !== userId && chat.sellerId !== userId) return res.status(403).json({ message: "Access denied" });
+
+      const msgs = await db.select({
+        id: chatMessages.id,
+        chatId: chatMessages.chatId,
+        senderId: chatMessages.senderId,
+        content: chatMessages.content,
+        read: chatMessages.read,
+        createdAt: chatMessages.createdAt,
+        senderName: sql<string>`concat(${users.firstName}, ' ', ${users.lastName})`,
+      }).from(chatMessages)
+        .leftJoin(users, eq(chatMessages.senderId, users.id))
+        .where(eq(chatMessages.chatId, chatId))
+        .orderBy(chatMessages.createdAt);
+
+      // Mark messages from the other party as read
+      await db.update(chatMessages).set({ read: true })
+        .where(and(eq(chatMessages.chatId, chatId), sql`${chatMessages.senderId} != ${userId}`, eq(chatMessages.read, false)));
+
+      // Return chat info too
+      const [productRow] = await db.select({ name: products.name, images: products.images })
+        .from(products).where(eq(products.id, chat.productId)).limit(1);
+
+      res.json({ chat: { ...chat, product: productRow }, messages: msgs });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch messages" });
+    }
+  });
+
+  // Send a message
+  app.post("/api/chats/:chatId/messages", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const chatId = parseInt(req.params.chatId);
+      const userId = (req.user as any).id;
+      const { content } = req.body;
+      if (!content?.trim()) return res.status(400).json({ message: "Message cannot be empty" });
+
+      const [chat] = await db.select().from(productChats).where(eq(productChats.id, chatId)).limit(1);
+      if (!chat) return res.status(404).json({ message: "Chat not found" });
+      if (chat.buyerId !== userId && chat.sellerId !== userId) return res.status(403).json({ message: "Access denied" });
+
+      const [msg] = await db.insert(chatMessages).values({ chatId, senderId: userId, content: content.trim() }).returning();
+
+      // Notify the other party
+      const recipientId = userId === chat.buyerId ? chat.sellerId : chat.buyerId;
+      const [sender] = await db.select({ firstName: users.firstName }).from(users).where(eq(users.id, userId)).limit(1);
+      db.insert(notifications).values({
+        userId: recipientId, type: "chat",
+        title: `New message from ${sender?.firstName ?? "someone"}`,
+        body: content.trim().slice(0, 80),
+        link: `/product/${chat.productId}`,
+      }).catch(() => {});
+
+      // Update chat updatedAt
+      db.update(productChats).set({ updatedAt: new Date() }).where(eq(productChats.id, chatId)).catch(() => {});
+
+      res.json(msg);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to send message" });
+    }
+  });
+
+  // Seller: get all their chats
+  app.get("/api/seller/chats", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.user as any).id;
+      const seller = await storage.getSellerByUserId(userId);
+      if (!seller || seller.status !== "approved") return res.status(403).json({ message: "Approved seller account required" });
+
+      const chats = await db.select({
+        id: productChats.id,
+        productId: productChats.productId,
+        buyerId: productChats.buyerId,
+        updatedAt: productChats.updatedAt,
+        productName: products.name,
+        productImage: sql<string>`${products.images}->0`,
+        buyerName: sql<string>`concat(${users.firstName}, ' ', ${users.lastName})`,
+        buyerEmail: users.email,
+      }).from(productChats)
+        .leftJoin(products, eq(productChats.productId, products.id))
+        .leftJoin(users, eq(productChats.buyerId, users.id))
+        .where(eq(productChats.sellerId, userId))
+        .orderBy(desc(productChats.updatedAt));
+
+      // Attach unread count + last message per chat
+      const result = await Promise.all(chats.map(async (c) => {
+        const [unreadRow] = await db.select({ cnt: count(chatMessages.id) }).from(chatMessages)
+          .where(and(eq(chatMessages.chatId, c.id), eq(chatMessages.read, false), sql`${chatMessages.senderId} != ${userId}`));
+        const [lastMsg] = await db.select({ content: chatMessages.content, createdAt: chatMessages.createdAt })
+          .from(chatMessages).where(eq(chatMessages.chatId, c.id)).orderBy(desc(chatMessages.createdAt)).limit(1);
+        return { ...c, unread: Number(unreadRow?.cnt ?? 0), lastMessage: lastMsg ?? null };
+      }));
+
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch chats" });
+    }
+  });
+
+  // Buyer: get their own chats
+  app.get("/api/buyer/chats", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req.user as any).id;
+      const chats = await db.select({
+        id: productChats.id,
+        productId: productChats.productId,
+        sellerId: productChats.sellerId,
+        updatedAt: productChats.updatedAt,
+        productName: products.name,
+        productImage: sql<string>`${products.images}->0`,
+        sellerName: sellers.storeName,
+      }).from(productChats)
+        .leftJoin(products, eq(productChats.productId, products.id))
+        .leftJoin(sellers, eq(productChats.sellerId, sellers.userId))
+        .where(eq(productChats.buyerId, userId))
+        .orderBy(desc(productChats.updatedAt));
+
+      const result = await Promise.all(chats.map(async (c) => {
+        const [unreadRow] = await db.select({ cnt: count(chatMessages.id) }).from(chatMessages)
+          .where(and(eq(chatMessages.chatId, c.id), eq(chatMessages.read, false), sql`${chatMessages.senderId} != ${userId}`));
+        const [lastMsg] = await db.select({ content: chatMessages.content, createdAt: chatMessages.createdAt })
+          .from(chatMessages).where(eq(chatMessages.chatId, c.id)).orderBy(desc(chatMessages.createdAt)).limit(1);
+        return { ...c, unread: Number(unreadRow?.cnt ?? 0), lastMessage: lastMsg ?? null };
+      }));
+
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch chats" });
     }
   });
 

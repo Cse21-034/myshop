@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Star, Check, ArrowLeft, Heart, Bookmark, ShieldCheck, Bell, Share2, MessageCircle, MapPin, Clock, CalendarDays, Truck, Wrench, Award } from "lucide-react";
+import { Star, Check, ArrowLeft, Heart, Bookmark, ShieldCheck, Bell, Share2, MessageCircle, MapPin, Clock, CalendarDays, Truck, Wrench, Award, Send, MessageSquare } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useCart } from "@/context/CartContext";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -184,6 +185,12 @@ export default function ProductPage() {
   // Q&A state
   const [newQuestion, setNewQuestion] = useState("");
 
+  // Chat state
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatId, setChatId] = useState<number | null>(null);
+  const [chatInput, setChatInput] = useState("");
+  const chatBottomRef = useRef<HTMLDivElement>(null);
+
   // Review form state
   const [reviewRating, setReviewRating] = useState(0);
   const [reviewTitle, setReviewTitle] = useState("");
@@ -284,6 +291,36 @@ export default function ProductPage() {
     mutationFn: (email: string) => apiRequest("POST", `/api/products/${id}/notify-stock`, { email }),
     onSuccess: () => { setNotifyDone(true); toast({ title: "We'll email you when it's back in stock!" }); },
     onError: () => toast({ title: "Failed to subscribe", variant: "destructive" }),
+  });
+
+  // Chat
+  const { data: chatData, refetch: refetchChat } = useQuery({
+    queryKey: ["chat-messages", chatId],
+    queryFn: () => fetch(`${backendURL}/api/chats/${chatId}/messages`, { credentials: "include" }).then(r => r.json()),
+    enabled: !!chatId && chatOpen,
+    refetchInterval: chatOpen ? 4000 : false,
+  });
+
+  useEffect(() => {
+    if (chatData?.messages?.length) {
+      chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [chatData]);
+
+  const startChatMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/products/${id}/chat`),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      setChatId(data.id);
+      setChatOpen(true);
+    },
+    onError: () => toast({ title: "Could not start chat", variant: "destructive" }),
+  });
+
+  const sendMessageMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/chats/${chatId}/messages`, { content: chatInput }),
+    onSuccess: () => { setChatInput(""); refetchChat(); },
+    onError: () => toast({ title: "Failed to send message", variant: "destructive" }),
   });
 
   const reviewMutation = useMutation({
@@ -421,6 +458,19 @@ export default function ProductPage() {
                 >
                   <Share2 className="h-4 w-4 sm:h-5 sm:w-5" />
                 </a>
+                {/* Chat with seller */}
+                {(product as any).seller && user && (product as any).seller.userId !== user.id && (
+                  <button
+                    onClick={() => {
+                      if (chatId) { setChatOpen(true); }
+                      else { startChatMutation.mutate(); }
+                    }}
+                    className="p-2 rounded-lg border border-gray-200 text-gray-400 hover:border-blue-400 hover:text-blue-500 transition-colors"
+                    title="Chat with seller"
+                  >
+                    <MessageSquare className="h-4 w-4 sm:h-5 sm:w-5" />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -694,6 +744,64 @@ export default function ProductPage() {
         )}
       </div>
       <Footer />
+
+      {/* ── Chat dialog ─────────────────────────────────────────────────── */}
+      <Dialog open={chatOpen} onOpenChange={setChatOpen}>
+        <DialogContent className="sm:max-w-md p-0 gap-0 flex flex-col max-h-[85vh]">
+          <DialogHeader className="px-4 py-3 border-b border-gray-100 shrink-0">
+            <DialogTitle className="text-sm font-semibold flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-primary" />
+              {chatData?.chat?.product?.name ?? product.name}
+            </DialogTitle>
+            <p className="text-xs text-gray-400">Chat with {(product as any).seller?.storeName}</p>
+          </DialogHeader>
+
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0">
+            {!chatData?.messages?.length ? (
+              <div className="flex flex-col items-center justify-center h-32 text-center text-gray-400">
+                <MessageSquare className="h-8 w-8 mb-2 opacity-30" />
+                <p className="text-sm">No messages yet. Say hi!</p>
+              </div>
+            ) : chatData.messages.map((m: any) => {
+              const isMine = m.senderId === user?.id;
+              return (
+                <div key={m.id} className={`flex ${isMine ? "justify-end" : "justify-start"}`}>
+                  <div className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm ${isMine ? "bg-primary text-white rounded-br-sm" : "bg-gray-100 text-gray-800 rounded-bl-sm"}`}>
+                    {!isMine && <p className="text-[10px] font-semibold mb-1 opacity-60">{m.senderName}</p>}
+                    <p className="leading-relaxed">{m.content}</p>
+                    <p className={`text-[10px] mt-1 ${isMine ? "text-white/60 text-right" : "text-gray-400"}`}>
+                      {new Date(m.createdAt).toLocaleTimeString("en-BW", { hour: "2-digit", minute: "2-digit" })}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+            <div ref={chatBottomRef} />
+          </div>
+
+          {/* Input */}
+          <div className="px-4 py-3 border-t border-gray-100 shrink-0">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                placeholder="Type a message…"
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && !e.shiftKey && chatInput.trim() && sendMessageMutation.mutate()}
+              />
+              <button
+                onClick={() => chatInput.trim() && sendMessageMutation.mutate()}
+                disabled={!chatInput.trim() || sendMessageMutation.isPending}
+                className="bg-primary text-white rounded-xl px-3 py-2 hover:bg-primary/90 disabled:opacity-40 transition-colors"
+              >
+                <Send className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

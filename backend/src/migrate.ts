@@ -171,6 +171,25 @@ async function migrate() {
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS coupon_code varchar`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount decimal(10,2) DEFAULT 0`,
 
+    // Product chat
+    `CREATE TABLE IF NOT EXISTS product_chats (
+      id serial PRIMARY KEY,
+      product_id integer NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      buyer_id varchar NOT NULL REFERENCES users(id),
+      seller_id varchar NOT NULL,
+      created_at timestamp DEFAULT now(),
+      updated_at timestamp DEFAULT now()
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_product_chats_unique ON product_chats(product_id, buyer_id)`,
+    `CREATE TABLE IF NOT EXISTS chat_messages (
+      id serial PRIMARY KEY,
+      chat_id integer NOT NULL REFERENCES product_chats(id) ON DELETE CASCADE,
+      sender_id varchar NOT NULL REFERENCES users(id),
+      content text NOT NULL,
+      read boolean DEFAULT false,
+      created_at timestamp DEFAULT now()
+    )`,
+
     // Kgotla marketplace bridge table
     `CREATE TABLE IF NOT EXISTS kgotla_product_map (
       id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
