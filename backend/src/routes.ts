@@ -673,6 +673,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/user/change-password", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { currentPassword, newPassword } = req.body;
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ message: "Current password and new password are required" });
+      }
+      if (newPassword.length < 8) {
+        return res.status(400).json({ message: "New password must be at least 8 characters" });
+      }
+      const userId = (req.user as any).id;
+      const [dbUser] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+      if (!dbUser) return res.status(404).json({ message: "User not found" });
+      if (!dbUser.passwordHash) {
+        return res.status(400).json({ message: "Password change is not available for accounts signed in with Google." });
+      }
+      const bcrypt = await import("bcryptjs");
+      const valid = await bcrypt.compare(currentPassword, dbUser.passwordHash);
+      if (!valid) return res.status(400).json({ message: "Current password is incorrect" });
+      const hashed = await bcrypt.hash(newPassword, 12);
+      await db.update(users).set({ passwordHash: hashed, updatedAt: new Date() }).where(eq(users.id, userId));
+      res.json({ message: "Password updated successfully" });
+    } catch (error) {
+      console.error("change-password error", error);
+      res.status(500).json({ message: "Failed to change password" });
+    }
+  });
+
   app.post("/api/auth/refresh", csrfProtection, async (req: Request, res: Response) => {
     try {
       const { refreshToken } = req.body;
