@@ -4,10 +4,22 @@ export default {
   darkMode: ["class"],
   content: ["./client/index.html", "./client/src/**/*.{js,jsx,ts,tsx}"],
   theme: {
+    container: {
+      // Only apply max-width at standard breakpoints — NOT at custom xxs/xs.
+      // Without this, the container gets max-width:340px on a 375px phone,
+      // causing unwanted side margins.
+      screens: {
+        sm: "640px",
+        md: "768px",
+        lg: "1024px",
+        xl: "1280px",
+        "2xl": "1536px",
+      },
+    },
     extend: {
       screens: {
-       xxs: "340px",   
-  xs: "480px",   
+       xxs: "340px",
+       xs: "480px",
       },
       borderRadius: {
         lg: "var(--radius)",
