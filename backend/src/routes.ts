@@ -8,7 +8,7 @@ import { storage } from "./storage";
 import { isAuthenticated } from "./googleAuth";
 import { eq, sql, and, count, avg, desc, gte, lt } from "drizzle-orm";
 import { db } from "./db";
-import { contactMessages, products, orders, productLikes, wishlistItems, productReviews, orderItems, users, stockNotifications, returnRequests, coupons, notifications, productQuestions, payoutRequests, abandonedCartLogs, cartItems, sellers, productChats, chatMessages, paygatePayments } from "./schema";
+import { contactMessages, products, orders, productLikes, wishlistItems, productReviews, orderItems, users, stockNotifications, returnRequests, coupons, notifications, productQuestions, payoutRequests, abandonedCartLogs, cartItems, sellers, productChats, chatMessages, paygatePayments, categories } from "./schema";
 import { createStripePaymentIntent, initiateOrangeMoneyPayment } from "./payment";
 import { createPayPalOrder, capturePayPalOrder } from "./paypal-service";
 import { sendEmail, sendOrderEmail, sendRegistrationEmail, otpEmailTemplate, orderConfirmationTemplate, orderStatusUpdateTemplate, paymentSuccessTemplate } from "./email";
